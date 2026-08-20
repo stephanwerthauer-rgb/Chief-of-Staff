@@ -18,12 +18,15 @@ const Store = (() => {
         gmail: true,
         lookbackDays: 3
       },
-      anthropicKey: ''       // optional: Claude-powered email triage
+      anthropicKey: '',      // optional: Claude-powered email triage
+      partnerName: 'Stephan' // who tasks can be handed over to
     },
     tasks: [],   // {id,title,estimateMin,deadline,important,someday,pinnedDate,plannedDate,atRisk,steps[],done,doneAt,createdAt}
     events: [],  // {id,title,date,start,durationMin,source?,gcalId?,allDay?}
     inbox: [],   // {id,text,createdAt,link?,source?,suggestMin?}
     closedDays: {}, // {'YYYY-MM-DD': true}
+    checkins: {},   // {'YYYY-MM-DD': 'low'|'ok'|'good'} — morning energy answer
+    calm: null,     // {date, taskId} — "too much" mode: show only one tiny thing
     processedEmails: {}, // gmail message id -> timestamp (never re-surface a message)
     lastSyncAt: 0
   });
@@ -84,6 +87,7 @@ const Store = (() => {
       deadline: null,
       important: false,
       someday: false,
+      repeat: null,          // null | 'daily' | 'weekly' | 'monthly'
       pinnedDate: null,
       plannedDate: null,
       atRisk: false,

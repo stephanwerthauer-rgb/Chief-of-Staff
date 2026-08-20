@@ -26,11 +26,26 @@ const Planner = (() => {
     return Store.eventsOn(dateStr).reduce((a, e) => a + (e.durationMin || 0), 0);
   }
 
-  /* Free "doing" minutes for a given day, before any tasks are placed. */
+  /* Free "doing" minutes for a given day, before any tasks are placed.
+     A low-energy morning check-in halves the day; a good one adds a little room. */
+  const ENERGY_FACTOR = { low: 0.5, ok: 1, good: 1.15 };
+
   function dayBudget(dateStr) {
     const cap = Store.state.settings.capacityMin || 240;
-    const budget = cap - eventMinutesOn(dateStr);
+    const factor = ENERGY_FACTOR[Store.state.checkins[dateStr]] || 1;
+    const budget = Math.round(cap * factor) - eventMinutesOn(dateStr);
     return Math.max(0, budget);
+  }
+
+  /* How full are the next seven days? */
+  function weekLoad() {
+    let planned = 0, budget = 0;
+    for (let i = 0; i < 7; i++) {
+      const d = Store.todayStr(i);
+      planned += plannedMinutesOn(d);
+      budget += dayBudget(d);
+    }
+    return { planned, budget, ratio: budget > 0 ? planned / budget : (planned > 0 ? 1 : 0) };
   }
 
   function urgencySort(a, b) {
@@ -122,5 +137,5 @@ const Planner = (() => {
     return Store.state.tasks.filter(t => !t.done && !t.someday && t.atRisk);
   }
 
-  return { replan, tasksOn, doneOn, remainingMinutes, plannedMinutesOn, dayBudget, atRiskTasks, HORIZON_DAYS };
+  return { replan, tasksOn, doneOn, remainingMinutes, plannedMinutesOn, dayBudget, weekLoad, atRiskTasks, HORIZON_DAYS };
 })();

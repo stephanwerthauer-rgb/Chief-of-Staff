@@ -22,6 +22,21 @@ Haven is deliberately different from a normal productivity app:
   choices: Today · Give it a day · Someday · Let it go.
 - **Kind endings.** "Close the day" celebrates what got done and quietly rehomes
   what didn't — no guilt, no red badges, no overdue shaming anywhere.
+- **A morning check-in.** One tap — running low / okay / good — and the day
+  reshapes itself: a low-energy day is automatically planned lighter.
+- **A "too much" escape hatch.** When it all tightens up: shrink the day to one
+  tiny thing, move everything to tomorrow, or just breathe for a minute.
+- **Recurring tasks.** Laundry, bills, watering plants — finish one and the
+  next occurrence quietly books itself in.
+- **A weekly look-back.** "Look what you did": everything finished this week,
+  as evidence against the "I'm not doing enough" voice. No streaks, no scores.
+- **Hand it over.** Any task or email can be handed to a partner in one tap —
+  a kind pre-written message opens in the share sheet.
+- **A week-full guardrail.** If a new task pushes the coming week near its
+  limit, Haven says so gently and offers to help make room — it never lets
+  overload happen silently.
+- **Share into Haven** (Android): share any message or email from another app
+  straight into Head space via the system share sheet.
 
 Everything is written in warm, calm language, with soft colours, large touch
 targets, and a dark mode that follows the phone.

@@ -140,6 +140,57 @@
     $('#today-date').textContent = new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
     $('#greeting').textContent = greetingText();
 
+    // "too much" calm mode: the whole day shrinks to one small thing
+    const calm = Store.state.calm;
+    if (calm && calm.date === today) {
+      const t = Store.getTask(calm.taskId);
+      if (t && !t.done) {
+        $('#day-summary').textContent = 'The rest of the day is on pause. Only this exists right now.';
+        $('#checkin-slot').innerHTML = '';
+        $('#capacity-wrap').hidden = true;
+        const step = (t.steps || []).find(s => !s.done);
+        $('#now-slot').innerHTML = `
+          <div class="now-card">
+            <div class="card-label">One small thing</div>
+            <div class="now-title">${esc(t.title)}</div>
+            ${step ? `<p class="now-step-hint">Just the first bit: <strong>${esc(step.title)}</strong></p>` : ''}
+            <div class="now-meta"><span class="chip time">⏱ ${fmtMin(Planner.remainingMinutes(t)) || '—'}</span></div>
+            <div class="now-actions">
+              <button class="btn btn-primary" data-act="focus" data-id="${t.id}">Begin gently</button>
+              <button class="btn btn-soft" data-act="done" data-id="${t.id}">Done ✓</button>
+            </div>
+          </div>`;
+        $('#today-list').innerHTML = '';
+        $('#today-events').innerHTML = '';
+        $('#day-actions').innerHTML = `<button class="btn btn-ghost btn-block" data-act="calm-exit">Show the whole day again</button>`;
+        return;
+      }
+      Store.state.calm = null;
+      Store.save();
+    }
+
+    // morning energy check-in shapes the day's capacity
+    const checkin = Store.state.checkins[today];
+    if (!checkin && (tasks.length || events.length)) {
+      $('#checkin-slot').innerHTML = `
+        <div class="card checkin-card">
+          <div class="card-label">Before anything else</div>
+          <p style="font-weight:600; margin-bottom:12px">How's your energy today?</p>
+          <div class="triage-grid cols-3">
+            <button class="triage-btn" data-act="checkin" data-mood="low"><span class="t-icon">🌧️</span>Running low</button>
+            <button class="triage-btn" data-act="checkin" data-mood="ok"><span class="t-icon">😌</span>Okay</button>
+            <button class="triage-btn" data-act="checkin" data-mood="good"><span class="t-icon">☀️</span>Good</button>
+          </div>
+        </div>`;
+    } else if (checkin) {
+      const icon = { low: '🌧️', ok: '😌', good: '☀️' }[checkin];
+      const note = { low: 'A gentle day — the plan is keeping it light.', ok: 'A steady day.', good: 'A bright one.' }[checkin];
+      $('#checkin-slot').innerHTML = `
+        <button class="chip checkin-chip" data-act="checkin-open">${icon} ${note} <span style="opacity:.55">change</span></button>`;
+    } else {
+      $('#checkin-slot').innerHTML = '';
+    }
+
     // summary line
     const parts = [];
     if (tasks.length === 0 && doneToday.length === 0 && events.length === 0) {
@@ -224,14 +275,20 @@
       ? `<p class="section-title">On the calendar</p>` + events.map(eventRow).join('')
       : '';
 
-    // close-day
+    // close-day, "too much", Sunday look-back
     const actions = $('#day-actions');
+    let actionsHtml = '';
     const evening = new Date().getHours() >= 17;
     if ((evening || tasks.length === 0) && (tasks.length > 0 || doneToday.length > 0)) {
-      actions.innerHTML = `<button class="btn btn-soft btn-block" data-act="close-day">Close the day 🌙</button>`;
-    } else {
-      actions.innerHTML = '';
+      actionsHtml += `<button class="btn btn-soft btn-block" data-act="close-day">Close the day 🌙</button>`;
     }
+    if (tasks.length > 0) {
+      actionsHtml += `<button class="btn btn-ghost btn-block" data-act="too-much">Feeling like too much? 🌊</button>`;
+    }
+    if (new Date().getDay() === 0 && weekDone().length > 0) {
+      actionsHtml += `<button class="btn btn-ghost btn-block" data-act="look-back">Your week, gently 🌿</button>`;
+    }
+    actions.innerHTML = actionsHtml;
   }
 
   function taskRow(t) {
@@ -246,6 +303,7 @@
             ${!t.done ? `<span class="chip time">⏱ ${fmtMin(Planner.remainingMinutes(t)) || '—'}</span>` : ''}
             ${t.deadline && !t.done ? `<span class="chip deadline ${deadlineUrgent(t.deadline) ? 'urgent' : ''}">${fmtDeadline(t.deadline)}</span>` : ''}
             ${t.important && !t.done ? `<span class="chip important">matters</span>` : ''}
+            ${t.repeat && !t.done ? `<span class="chip">↻ ${t.repeat}</span>` : ''}
             ${t.atRisk && !t.done ? `<span class="chip risk">needs a rethink</span>` : ''}
           </div>
           ${stepsTotal ? `<div class="task-steps-note">${stepsDone}/${stepsTotal} small steps done</div>` : ''}
@@ -287,6 +345,14 @@
     } else {
       notes.innerHTML = '';
     }
+    const load = Planner.weekLoad();
+    if (load.ratio >= 0.9 && !risk.length) {
+      notes.innerHTML += `
+        <div class="note-card">
+          <strong>This week is holding a lot.</strong> About ${fmtMin(load.planned)} of doing across the next seven days.
+          If anything can wait, tapping it and choosing “Not today” will let the week breathe.
+        </div>`;
+    }
 
     // 14-day view
     const weekEl = $('#week-list');
@@ -312,9 +378,10 @@
 
     // someday
     const someday = Store.state.tasks.filter(t => !t.done && t.someday);
-    $('#someday-list').innerHTML = someday.length
+    $('#someday-list').innerHTML = (someday.length
       ? `<p class="section-title">Someday, no pressure</p>` + someday.map(taskRow).join('')
-      : '';
+      : '') +
+      `<button class="btn btn-ghost btn-block" data-act="look-back" style="margin-top:14px">Look back at your week 🌿</button>`;
   }
 
   /* ================= INBOX ================= */
@@ -365,6 +432,7 @@
         <button class="triage-btn" data-act="tri-plan" data-id="${item.id}"><span class="t-icon">🗓️</span>Give it a day<small>we’ll find room</small></button>
         <button class="triage-btn" data-act="tri-someday" data-id="${item.id}"><span class="t-icon">🌱</span>Someday<small>parked, not lost</small></button>
         <button class="triage-btn" data-act="tri-drop" data-id="${item.id}"><span class="t-icon">🍂</span>Let it go<small>permission granted</small></button>
+        ${Store.state.settings.partnerName ? `<button class="triage-btn" data-act="tri-hand" data-id="${item.id}" style="grid-column:1 / -1"><span class="t-icon">🤝</span>Hand it to ${esc(Store.state.settings.partnerName)}<small>you don’t have to carry everything</small></button>` : ''}
       </div>
       <div class="sheet-actions"><button class="btn btn-ghost" data-act="sheet-close">Pause sorting</button></div>
     `);
@@ -403,9 +471,25 @@
   }
 
   const ESTIMATES = [10, 20, 30, 45, 60, 90, 120];
+  const REPEATS = [[null, 'Never'], ['daily', 'Daily'], ['weekly', 'Weekly'], ['monthly', 'Monthly']];
+
+  function repeatChips(id, current) {
+    return `<div class="chip-row" id="${id}">
+      ${REPEATS.map(([v, l]) => `<button type="button" class="chip-pick ${v === current ? 'selected' : ''}" data-rep="${v || ''}">${l}</button>`).join('')}
+    </div>`;
+  }
+
+  function wireChipRow(rowId) {
+    $('#' + rowId).addEventListener('click', e => {
+      const c = e.target.closest('.chip-pick');
+      if (!c) return;
+      $$('#' + rowId + ' .chip-pick').forEach(x => x.classList.remove('selected'));
+      c.classList.add('selected');
+    });
+  }
 
   function openTaskSheet(prefill = {}, onSaved = null, savedMsg = null) {
-    const p = Object.assign({ title: '', estimateMin: 30, deadline: '', important: false, someday: false, pinnedDate: null }, prefill);
+    const p = Object.assign({ title: '', estimateMin: 30, deadline: '', important: false, someday: false, pinnedDate: null, repeat: null }, prefill);
     openSheet(`
       <h2>${p.someday ? 'Park it for someday' : 'A new task'}</h2>
       <p class="sheet-sub">${p.someday ? 'No dates, no pressure. It’ll be waiting when you want it.' : 'A rough time guess is enough — it helps the plan protect your day.'}</p>
@@ -424,6 +508,10 @@
         <label for="tsk-deadline">Does it have a deadline? <span style="font-weight:400">(leave empty if not)</span></label>
         <input type="date" id="tsk-deadline" value="${esc(p.deadline || '')}" min="${Store.todayStr()}">
       </div>
+      <div class="field">
+        <label>Does it come back? <span style="font-weight:400">(laundry, bills, watering plants…)</span></label>
+        ${repeatChips('tsk-repeat', p.repeat)}
+      </div>
       <div class="toggle-row" id="tsk-important-row"><span>This one really matters</span><div class="switch ${p.important ? 'on' : ''}" id="tsk-important"></div></div>
       <div class="toggle-row" id="tsk-today-row"><span>Do it today</span><div class="switch ${p.pinnedDate ? 'on' : ''}" id="tsk-today"></div></div>
       `}
@@ -433,12 +521,8 @@
       </div>
     `);
 
-    $('#tsk-est').addEventListener('click', e => {
-      const c = e.target.closest('.chip-pick');
-      if (!c) return;
-      $$('#tsk-est .chip-pick').forEach(x => x.classList.remove('selected'));
-      c.classList.add('selected');
-    });
+    wireChipRow('tsk-est');
+    if ($('#tsk-repeat')) wireChipRow('tsk-repeat');
     const impEl = $('#tsk-important'), todEl = $('#tsk-today');
     if (impEl) $('#tsk-important-row').addEventListener('click', () => impEl.classList.toggle('on'));
     if (todEl) $('#tsk-today-row').addEventListener('click', () => todEl.classList.toggle('on'));
@@ -450,8 +534,9 @@
       const deadline = p.someday ? null : ($('#tsk-deadline').value || null);
       const important = impEl ? impEl.classList.contains('on') : false;
       const doToday = todEl ? todEl.classList.contains('on') : false;
+      const repeat = $('#tsk-repeat')?.querySelector('.chip-pick.selected')?.dataset.rep || null;
       const task = Store.addTask({
-        title, estimateMin: est, deadline, important,
+        title, estimateMin: est, deadline, important, repeat: repeat || null,
         someday: p.someday, pinnedDate: doToday ? Store.todayStr() : null
       });
       Planner.replan();
@@ -468,9 +553,28 @@
       }
       if (est >= 60 && !p.someday) {
         setTimeout(() => offerBreakdown(task.id), 900);
+      } else if (!onSaved && !p.someday) {
+        maybeWeekFullNote();
       }
     });
     setTimeout(() => $('#tsk-title')?.focus(), 250);
+  }
+
+  /* Gentle guardrail: speak up when the coming week is nearly full. */
+  function maybeWeekFullNote() {
+    const load = Planner.weekLoad();
+    if (load.ratio < 0.9) return;
+    setTimeout(() => openSheet(`
+      <h2>A gentle heads-up 🌾</h2>
+      <p class="sheet-sub">
+        The next seven days are now holding about ${fmtMin(load.planned)} of doing — close to everything they can carry.
+        Nothing is wrong, and it's all still planned. But if something could wait, letting it would give the week room to breathe.
+      </p>
+      <div class="sheet-actions">
+        <button class="btn btn-soft" data-act="goto-plan">Show me the week</button>
+        <button class="btn btn-primary" data-act="sheet-close">It's okay</button>
+      </div>
+    `), 700);
   }
 
   function openEventSheet() {
@@ -571,14 +675,25 @@
         <input type="date" id="dt-deadline" value="${esc(t.deadline || '')}" min="${Store.todayStr()}">
       </div>
 
+      <div class="field">
+        <label>Repeats</label>
+        ${repeatChips('dt-repeat', t.repeat)}
+      </div>
+
       <div class="sheet-actions" style="flex-wrap:wrap">
         ${!t.done ? `<button class="btn btn-primary" data-act="focus" data-id="${t.id}">Begin gently</button>` : ''}
         ${!t.done && !t.someday ? `<button class="btn btn-soft" data-act="not-today" data-id="${t.id}">Not today</button>` : ''}
         ${t.someday ? `<button class="btn btn-soft" data-act="revive" data-id="${t.id}">Bring it back</button>` : ''}
+        ${!t.done && Store.state.settings.partnerName ? `<button class="btn btn-soft" data-act="hand-over" data-id="${t.id}">Hand to ${esc(Store.state.settings.partnerName)} 🤝</button>` : ''}
         <button class="btn btn-ghost" data-act="task-delete" data-id="${t.id}">Let it go</button>
         <button class="btn btn-ghost" data-act="sheet-close">Close</button>
       </div>
     `);
+    wireChipRow('dt-repeat');
+    $('#dt-repeat').addEventListener('click', e => {
+      const c = e.target.closest('.chip-pick');
+      if (c) Store.updateTask(t.id, { repeat: c.dataset.rep || null });
+    });
 
     $('#step-est').addEventListener('click', e => {
       const c = e.target.closest('.chip-pick');
@@ -646,17 +761,135 @@
 
   /* ================= actions (event delegation) ================= */
 
+  function nextOccurrence(t) {
+    const today = Store.todayStr();
+    const base = Store.fromDateStr(t.plannedDate && t.plannedDate > today ? t.plannedDate : today);
+    if (t.repeat === 'daily') base.setDate(base.getDate() + 1);
+    else if (t.repeat === 'weekly') base.setDate(base.getDate() + 7);
+    else base.setMonth(base.getMonth() + 1);
+    return Store.toDateStr(base);
+  }
+
   function completeTask(id) {
     const t = Store.getTask(id);
     if (!t) return;
     if (t.done) {
       Store.updateTask(id, { done: false, doneAt: null });
+      // undo the occurrence that completion spawned, if it's still untouched
+      const spawned = t.spawnedNextId && Store.getTask(t.spawnedNextId);
+      if (spawned && !spawned.done) Store.deleteTask(spawned.id);
+      Store.updateTask(id, { spawnedNextId: null });
     } else {
       (t.steps || []).forEach(s => s.done = true);
       Store.updateTask(id, { done: true, doneAt: Date.now() });
-      cheer();
+      if (t.repeat) {
+        const next = Store.addTask({
+          title: t.title, estimateMin: t.estimateMin, important: t.important,
+          repeat: t.repeat, pinnedDate: nextOccurrence(t),
+          steps: (t.steps || []).map(s => ({ id: Store.uid(), title: s.title, estimateMin: s.estimateMin, done: false }))
+        });
+        Store.updateTask(id, { spawnedNextId: next.id });
+        toast(`Done — it’ll come back ${fmtDayLabel(next.pinnedDate).toLowerCase() === 'today' ? 'today' : fmtDayLabel(next.pinnedDate)}. 🌿`);
+      } else {
+        cheer();
+      }
     }
     render();
+  }
+
+  /* ---- weekly look-back ---- */
+
+  function weekDone() {
+    const cutoff = Date.now() - 7 * 24 * 3600 * 1000;
+    return Store.state.tasks.filter(t => t.done && t.doneAt && t.doneAt >= cutoff);
+  }
+
+  function openLookBack() {
+    const done = weekDone().sort((a, b) => b.doneAt - a.doneAt);
+    if (!done.length) {
+      openSheet(`
+        <div class="done-card" style="margin-bottom:0">
+          <div class="big">🕊️</div>
+          <h2>A quiet week.</h2>
+          <p>Rest counts too — it’s how the next week becomes possible.</p>
+          <div style="margin-top:18px"><button class="btn btn-primary" data-act="sheet-close">Okay 💛</button></div>
+        </div>`);
+      return;
+    }
+    const totalMin = done.reduce((a, t) => a + (t.estimateMin || 30), 0);
+    const met = done.filter(t => t.deadline && Store.toDateStr(new Date(t.doneAt)) <= t.deadline).length;
+    const days = new Set(done.map(t => Store.toDateStr(new Date(t.doneAt)))).size;
+    openSheet(`
+      <div style="text-align:center; padding: 6px 0 14px">
+        <div style="font-size:2.4rem; margin-bottom:8px">🌿</div>
+        <h2>Look what you did.</h2>
+        <p class="sheet-sub" style="margin-top:6px">
+          ${done.length} thing${done.length === 1 ? '' : 's'} finished this week — about ${fmtMin(totalMin)} of doing,
+          across ${days} day${days === 1 ? '' : 's'}.${met ? ` ${met} deadline${met === 1 ? '' : 's'} met with room to spare.` : ''}
+          <br><br>That all happened because of you.
+        </p>
+      </div>
+      ${done.slice(0, 8).map(t => `
+        <div class="step-row"><span class="task-check checked" style="cursor:default">✓</span><p>${esc(t.title)}</p></div>`).join('')}
+      ${done.length > 8 ? `<p class="empty-note" style="padding:8px">…and ${done.length - 8} more.</p>` : ''}
+      <div class="sheet-actions"><button class="btn btn-primary btn-block" data-act="sheet-close">That was me 💛</button></div>
+    `);
+  }
+
+  /* ---- "too much" rescue ---- */
+
+  function openTooMuch() {
+    const today = Store.todayStr();
+    const tasks = Planner.tasksOn(today);
+    const tiny = tasks.slice().sort((a, b) => Planner.remainingMinutes(a) - Planner.remainingMinutes(b))[0];
+    openSheet(`
+      <h2>It’s okay. Let’s shrink it.</h2>
+      <p class="sheet-sub">You don’t have to do today all at once — or at all. Pick whatever feels possible.</p>
+      <div class="sheet-actions" style="flex-direction:column">
+        ${tiny ? `<button class="btn btn-primary btn-block" data-act="calm-enter" data-id="${tiny.id}">🍃 Just one tiny thing (${fmtMin(Planner.remainingMinutes(tiny))})</button>` : ''}
+        <button class="btn btn-soft btn-block" data-act="day-to-tomorrow">🌙 Move today to tomorrow</button>
+        <button class="btn btn-soft btn-block" data-act="breathe">🫧 Just breathe for a minute</button>
+        <button class="btn btn-ghost btn-block" data-act="sheet-close">I’m okay, go back</button>
+      </div>
+    `);
+  }
+
+  function startBreathe() {
+    closeSheet();
+    focusEl.hidden = false;
+    document.body.style.overflow = 'hidden';
+    focusEl.innerHTML = `
+      <div class="breath" aria-hidden="true"></div>
+      <p class="focus-kicker">Nothing to do right now</p>
+      <h2>In… and out.</h2>
+      <p class="focus-timer" id="breathe-note">Follow the circle. The list can wait.</p>
+      <div class="focus-actions">
+        <button class="btn btn-soft btn-block" data-act="breathe-exit">I’m ready — or not, and that’s fine</button>
+      </div>
+    `;
+    focusTimer = setTimeout(() => {
+      const el = $('#breathe-note');
+      if (el) el.textContent = 'Better? There’s no rush. Stay as long as you like.';
+    }, 60000);
+  }
+
+  /* ---- handing a task over ---- */
+
+  async function handOver(text, estimateMin) {
+    const name = Store.state.settings.partnerName || 'someone';
+    const msg = `Could you take this off my plate? 💛 ${text}${estimateMin ? ` (about ${fmtMin(estimateMin)})` : ''}`;
+    if (navigator.share) {
+      try { await navigator.share({ text: msg }); return true; }
+      catch (e) { return false; /* she closed the share sheet — keep the task */ }
+    }
+    try {
+      await navigator.clipboard.writeText(msg);
+      toast(`Copied — paste it to ${name} wherever you chat. 💛`);
+      return true;
+    } catch (e) {
+      toast('Couldn’t open sharing here — but the thought counts.');
+      return false;
+    }
   }
 
   function closeDay() {
@@ -740,6 +973,69 @@
         break;
       }
       case 'sync-now': runSync(true); break;
+      case 'checkin': {
+        Store.state.checkins[Store.todayStr()] = el.dataset.mood;
+        Store.save();
+        Planner.replan();
+        render();
+        if (el.dataset.mood === 'low') toast('Let’s keep today light. The plan has made room. 🌿');
+        if (el.dataset.mood === 'good') toast('Lovely. The day is yours. ☀️');
+        break;
+      }
+      case 'checkin-open': {
+        delete Store.state.checkins[Store.todayStr()];
+        Store.save();
+        Planner.replan();
+        render();
+        break;
+      }
+      case 'too-much': openTooMuch(); break;
+      case 'calm-enter': {
+        Store.state.calm = { date: Store.todayStr(), taskId: id };
+        Store.save();
+        closeSheet();
+        render();
+        break;
+      }
+      case 'calm-exit': {
+        Store.state.calm = null;
+        Store.save();
+        render();
+        break;
+      }
+      case 'day-to-tomorrow': {
+        const tomorrow = Store.todayStr(1);
+        Planner.tasksOn(Store.todayStr()).forEach(t => Store.updateTask(t.id, { pinnedDate: tomorrow }));
+        Planner.replan();
+        closeSheet();
+        render();
+        toast('Everything is tomorrow’s, kindly. Today is for resting. 🌙');
+        break;
+      }
+      case 'breathe': startBreathe(); break;
+      case 'breathe-exit': exitFocus(); render(); break;
+      case 'look-back': openLookBack(); break;
+      case 'goto-plan': closeSheet(); goto('plan'); break;
+      case 'hand-over': {
+        const t = Store.getTask(id);
+        if (t) handOver(t.title, Planner.remainingMinutes(t)).then(ok => {
+          if (ok) {
+            Store.deleteTask(id);
+            closeSheet();
+            render();
+            toast(`Handed over. One less thing on your shoulders. 🤝`);
+          }
+        });
+        break;
+      }
+      case 'tri-hand': {
+        const item = Store.state.inbox.find(i => i.id === id);
+        if (item) handOver(item.text.replace(/^📧\s*/, ''), item.suggestMin).then(ok => {
+          if (ok) { Store.removeInbox(id); toast('Handed over. 🤝'); }
+          startTriage();
+        });
+        break;
+      }
       case 'add-task': openTaskSheet(); break;
       case 'add-event': openEventSheet(); break;
       case 'add-thought': openThoughtSheet(); break;
@@ -781,6 +1077,9 @@
         <h3>About you</h3>
         <div class="field"><label for="set-name">What should I call you?</label>
           <input type="text" id="set-name" value="${esc(s.name)}" placeholder="Your name" autocomplete="off"></div>
+        <div class="field"><label for="set-partner">Who can you hand things to?</label>
+          <input type="text" id="set-partner" value="${esc(s.partnerName)}" placeholder="e.g. Stephan" autocomplete="off"></div>
+        <p class="screen-sub" style="margin-top:-6px">You don’t have to carry everything. Tasks can be handed over in one tap.</p>
       </div>
       <div class="settings-group">
         <h3>Your pace</h3>
@@ -843,6 +1142,7 @@
     `;
 
     $('#set-name').addEventListener('change', e => { s.name = e.target.value.trim(); Store.save(); render(); });
+    $('#set-partner').addEventListener('change', e => { s.partnerName = e.target.value.trim(); Store.save(); });
     $('#set-claude-key').addEventListener('change', e => {
       s.anthropicKey = e.target.value.trim(); Store.save();
       if (s.anthropicKey) toast('Smart filtering is on. Claude will guard the gate.');
@@ -953,6 +1253,18 @@
   }
 
   /* ================= boot ================= */
+
+  // Android share target: text shared into Haven lands in Head space
+  (() => {
+    const params = new URLSearchParams(location.search);
+    const shared = [params.get('title'), params.get('text'), params.get('url')]
+      .filter(Boolean).join(' — ').trim();
+    if (!shared) return;
+    Store.addInbox(shared);
+    history.replaceState(null, '', location.pathname);
+    toast('Got it — safe in Head space. 🌤️');
+    goto('inbox');
+  })();
 
   Planner.replan();
   render();

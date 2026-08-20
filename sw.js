@@ -1,5 +1,5 @@
 /* Haven service worker — makes the app work offline once installed. */
-const CACHE = 'haven-v2';
+const CACHE = 'haven-v3';
 const ASSETS = [
   '.',
   'index.html',

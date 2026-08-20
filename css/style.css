@@ -202,6 +202,18 @@ h1 { font-size: 1.9rem; font-weight: 700; letter-spacing: -0.02em; line-height: 
 .event-title { font-weight: 600; flex: 1; overflow-wrap: anywhere; }
 .event-del { color: var(--ink-faint); font-size: 1.1rem; padding: 4px; }
 
+/* ---------- Morning check-in ---------- */
+
+.checkin-card { margin-bottom: 18px; }
+.checkin-card .triage-btn { padding: 13px 6px; font-size: 0.85rem; }
+.checkin-chip {
+  margin-bottom: 16px;
+  background: var(--sage-tint);
+  color: var(--ink-soft);
+  border: none;
+  cursor: pointer;
+}
+
 /* ---------- Capacity ---------- */
 
 .capacity-wrap { margin-bottom: 20px; }
@@ -392,6 +404,7 @@ h1 { font-size: 1.9rem; font-weight: 700; letter-spacing: -0.02em; line-height: 
   overflow-wrap: anywhere;
 }
 .triage-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.triage-grid.cols-3 { grid-template-columns: 1fr 1fr 1fr; }
 .triage-btn {
   background: var(--surface);
   border-radius: var(--radius-sm);
