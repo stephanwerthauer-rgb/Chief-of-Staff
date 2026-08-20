@@ -381,7 +381,7 @@
     $('#someday-list').innerHTML = (someday.length
       ? `<p class="section-title">Someday, no pressure</p>` + someday.map(taskRow).join('')
       : '') +
-      `<button class="btn btn-ghost btn-block" data-act="look-back" style="margin-top:14px">Look back at your week 🌿</button>`;
+      `<button class="btn btn-ghost btn-block" data-act="look-back" style="margin-top:14px">Everything you’ve done 🌿</button>`;
   }
 
   /* ================= INBOX ================= */
@@ -621,13 +621,15 @@
   function openThoughtSheet() {
     openSheet(`
       <h2>Out of your head</h2>
-      <p class="sheet-sub">Type anything — a worry, an email to answer, a half-formed thing. Sorting can wait.</p>
+      <p class="sheet-sub">Say it or type it — a worry, an email to answer, a half-formed thing. Sorting can wait.</p>
       <div class="field"><textarea id="thought-text" rows="4" placeholder="One thing per line is fine…"></textarea></div>
       <div class="sheet-actions">
+        <button type="button" class="mic-btn" id="thought-mic" aria-label="Speak instead of typing">🎤</button>
         <button class="btn btn-ghost" data-act="sheet-close">Not now</button>
         <button class="btn btn-primary" id="thought-save">Put it down</button>
       </div>
     `);
+    attachMic('thought-mic', 'thought-text');
     $('#thought-save').addEventListener('click', () => {
       const lines = $('#thought-text').value.split('\n').map(s => s.trim()).filter(Boolean);
       lines.forEach(l => Store.addInbox(l));
@@ -797,43 +799,77 @@
     render();
   }
 
-  /* ---- weekly look-back ---- */
+  /* ---- everything she's done, filterable by time ---- */
 
-  function weekDone() {
-    const cutoff = Date.now() - 7 * 24 * 3600 * 1000;
-    return Store.state.tasks.filter(t => t.done && t.doneAt && t.doneAt >= cutoff);
+  const LOOK_RANGES = [
+    ['today', 'Today', 'today'],
+    ['7', 'This week', 'this week'],
+    ['30', 'This month', 'this month'],
+    ['all', 'All time', 'so far']
+  ];
+
+  function doneWithin(range) {
+    let cutoff = 0;
+    if (range === 'today') { const d = new Date(); d.setHours(0, 0, 0, 0); cutoff = d.getTime(); }
+    else if (range === '7') cutoff = Date.now() - 7 * 24 * 3600 * 1000;
+    else if (range === '30') cutoff = Date.now() - 30 * 24 * 3600 * 1000;
+    return Store.state.tasks
+      .filter(t => t.done && t.doneAt && t.doneAt >= cutoff)
+      .sort((a, b) => b.doneAt - a.doneAt);
   }
 
-  function openLookBack() {
-    const done = weekDone().sort((a, b) => b.doneAt - a.doneAt);
+  function weekDone() { return doneWithin('7'); }
+
+  function openLookBack(range = '7') {
+    const done = doneWithin(range);
+    const label = LOOK_RANGES.find(r => r[0] === range)[2];
+    const chips = `
+      <div class="chip-row" style="justify-content:center; margin-bottom:18px">
+        ${LOOK_RANGES.map(([v, l]) => `<button type="button" class="chip-pick ${v === range ? 'selected' : ''}" data-act="look-range" data-range="${v}">${l}</button>`).join('')}
+      </div>`;
+
     if (!done.length) {
       openSheet(`
+        ${chips}
         <div class="done-card" style="margin-bottom:0">
           <div class="big">🕊️</div>
-          <h2>A quiet week.</h2>
-          <p>Rest counts too — it’s how the next week becomes possible.</p>
+          <h2>${range === 'today' ? 'Nothing yet — and that’s fine.' : 'A quiet stretch.'}</h2>
+          <p>${range === 'today' ? 'The day isn’t a race. Whatever happens, happens gently.' : 'Rest counts too — it’s how the next stretch becomes possible.'}</p>
           <div style="margin-top:18px"><button class="btn btn-primary" data-act="sheet-close">Okay 💛</button></div>
         </div>`);
       return;
     }
+
     const totalMin = done.reduce((a, t) => a + (t.estimateMin || 30), 0);
     const met = done.filter(t => t.deadline && Store.toDateStr(new Date(t.doneAt)) <= t.deadline).length;
     const days = new Set(done.map(t => Store.toDateStr(new Date(t.doneAt)))).size;
+    const SHOW = 30;
     openSheet(`
-      <div style="text-align:center; padding: 6px 0 14px">
+      ${chips}
+      <div style="text-align:center; padding: 0 0 14px">
         <div style="font-size:2.4rem; margin-bottom:8px">🌿</div>
         <h2>Look what you did.</h2>
         <p class="sheet-sub" style="margin-top:6px">
-          ${done.length} thing${done.length === 1 ? '' : 's'} finished this week — about ${fmtMin(totalMin)} of doing,
-          across ${days} day${days === 1 ? '' : 's'}.${met ? ` ${met} deadline${met === 1 ? '' : 's'} met with room to spare.` : ''}
+          ${done.length} thing${done.length === 1 ? '' : 's'} finished ${label} — about ${fmtMin(totalMin)} of doing${days > 1 ? `, across ${days} days` : ''}.${met ? ` ${met} deadline${met === 1 ? '' : 's'} met with room to spare.` : ''}
           <br><br>That all happened because of you.
         </p>
       </div>
-      ${done.slice(0, 8).map(t => `
-        <div class="step-row"><span class="task-check checked" style="cursor:default">✓</span><p>${esc(t.title)}</p></div>`).join('')}
-      ${done.length > 8 ? `<p class="empty-note" style="padding:8px">…and ${done.length - 8} more.</p>` : ''}
+      ${done.slice(0, SHOW).map(t => `
+        <div class="step-row">
+          <span class="task-check checked" style="cursor:default">✓</span>
+          <p>${esc(t.title)}</p>
+          <span class="chip">${fmtDoneDate(t.doneAt)}</span>
+        </div>`).join('')}
+      ${done.length > SHOW ? `<p class="empty-note" style="padding:8px">…and ${done.length - SHOW} more. All of it counts.</p>` : ''}
       <div class="sheet-actions"><button class="btn btn-primary btn-block" data-act="sheet-close">That was me 💛</button></div>
     `);
+  }
+
+  function fmtDoneDate(ts) {
+    const dateStr = Store.toDateStr(new Date(ts));
+    if (dateStr === Store.todayStr()) return 'today';
+    if (dateStr === Store.todayStr(-1)) return 'yesterday';
+    return new Date(ts).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
   }
 
   /* ---- "too much" rescue ---- */
@@ -871,6 +907,45 @@
       const el = $('#breathe-note');
       if (el) el.textContent = 'Better? There’s no rush. Stay as long as you like.';
     }, 60000);
+  }
+
+  /* ---- voice capture ---- */
+
+  const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+  function attachMic(btnId, targetId) {
+    const btn = $('#' + btnId), target = $('#' + targetId);
+    if (!btn || !target) return;
+    if (!SpeechRec) { btn.hidden = true; return; } // keyboard dictation still works
+    let rec = null;
+    btn.addEventListener('click', () => {
+      if (rec) { rec.stop(); return; }
+      rec = new SpeechRec();
+      rec.lang = navigator.language || 'en-GB';
+      rec.continuous = true;
+      rec.interimResults = false;
+      rec.onresult = (e) => {
+        for (let i = e.resultIndex; i < e.results.length; i++) {
+          if (e.results[i].isFinal) {
+            const text = e.results[i][0].transcript.trim();
+            if (text) target.value = (target.value ? target.value.trimEnd() + '\n' : '') + text;
+          }
+        }
+      };
+      rec.onend = () => { btn.classList.remove('listening'); rec = null; };
+      rec.onerror = (e) => {
+        btn.classList.remove('listening');
+        rec = null;
+        if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+          toast('The microphone isn’t allowed here — the keyboard’s mic works too.');
+        }
+      };
+      try {
+        rec.start();
+        btn.classList.add('listening');
+        toast('Listening… just talk. Tap again when you’re done.');
+      } catch (err) { rec = null; }
+    });
   }
 
   /* ---- handing a task over ---- */
@@ -1015,6 +1090,7 @@
       case 'breathe': startBreathe(); break;
       case 'breathe-exit': exitFocus(); render(); break;
       case 'look-back': openLookBack(); break;
+      case 'look-range': openLookBack(el.dataset.range); break;
       case 'goto-plan': closeSheet(); goto('plan'); break;
       case 'hand-over': {
         const t = Store.getTask(id);
@@ -1084,13 +1160,13 @@
       <div class="settings-group">
         <h3>Your pace</h3>
         <div class="field">
-          <label for="set-capacity">How much “doing” feels right per day?</label>
+          <label for="set-capacity">How much life admin fits around your day?</label>
           <select id="set-capacity">
-            ${[[120, 'A gentle 2 hours'], [180, 'An easy 3 hours'], [240, 'A steady 4 hours'], [300, 'A full 5 hours'], [360, 'A big 6 hours']]
+            ${[[30, 'A calm half hour'], [45, 'Three-quarters of an hour'], [60, 'A steady hour (a good start)'], [90, 'An hour and a half'], [120, 'Two hours'], [180, 'Three hours'], [240, 'Four hours']]
               .map(([v, l]) => `<option value="${v}" ${v === s.capacityMin ? 'selected' : ''}>${l}</option>`).join('')}
           </select>
         </div>
-        <p class="screen-sub" style="margin-top:-6px">The plan will never quietly pile on more than this. Protecting your energy is the whole point.</p>
+        <p class="screen-sub" style="margin-top:-6px">Work already takes its eight hours. This is the space Haven may plan on top — for life, not more work — and it will never quietly pile on more. Nudge it up or down any time.</p>
       </div>
       <div class="settings-group">
         <h3>Connected accounts</h3>
@@ -1208,6 +1284,7 @@
         <p class="sheet-sub" style="margin-top:8px">
           This is your gentle chief of staff. You put things down — tasks, dates, worries —
           and Haven decides when they’ll get done, keeps deadlines safe, and never lets a day overflow.<br><br>
+          It plans about an hour of life admin around your working day — never more than feels right, and you can change it any time.<br><br>
           Your only job is the one small thing in front of you.
         </p>
       </div>
@@ -1254,21 +1331,30 @@
 
   /* ================= boot ================= */
 
-  // Android share target: text shared into Haven lands in Head space
+  // Android share target: text shared into Haven lands in Head space.
+  // ?quick=capture (icon quick-action / iOS Shortcut) opens straight into a brain-dump.
+  let quickCapture = false;
   (() => {
     const params = new URLSearchParams(location.search);
+    quickCapture = params.get('quick') === 'capture';
     const shared = [params.get('title'), params.get('text'), params.get('url')]
       .filter(Boolean).join(' — ').trim();
-    if (!shared) return;
-    Store.addInbox(shared);
+    if (!shared && !quickCapture) return;
     history.replaceState(null, '', location.pathname);
-    toast('Got it — safe in Head space. 🌤️');
-    goto('inbox');
+    if (shared) {
+      Store.addInbox(shared);
+      toast('Got it — safe in Head space. 🌤️');
+      goto('inbox');
+    }
   })();
 
   Planner.replan();
   render();
   maybeOnboard();
+  attachMic('inbox-mic', 'inbox-input');
+  if (quickCapture && Store.state.settings.onboarded) {
+    setTimeout(() => openThoughtSheet(), 250);
+  }
   if (Connect.shouldAutoSync()) runSync(false);
 
   // re-render when the app returns to foreground (date may have rolled over)

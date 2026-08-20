@@ -11,9 +11,10 @@ Haven is deliberately different from a normal productivity app:
 - **Prescriptive planning.** You tell Haven what something is, roughly how long
   it takes, and when it's due. *Haven* decides which day it happens — always
   before the deadline — so nothing has to be held in your head.
-- **A protected daily capacity.** Each day holds a set amount of "doing"
-  (default: a steady 4 hours, adjustable). Calendar events shrink it. Haven will
-  never quietly overfill a day; overflow flows to the next day with room.
+- **A protected daily capacity.** Work already takes its eight hours, so Haven
+  plans life admin in the space around it — a steady hour a day by default,
+  adjustable from half an hour up. Calendar events shrink it. Haven will never
+  quietly overfill a day; overflow flows to the next day with room.
 - **Small chunks.** Anything estimated at an hour or more triggers a gentle
   offer to break it into tiny steps ("open the email" counts). Focus mode shows
   only the next tiny step, with a breathing circle and a no-pressure timer.
@@ -37,6 +38,25 @@ Haven is deliberately different from a normal productivity app:
   overload happen silently.
 - **Share into Haven** (Android): share any message or email from another app
   straight into Head space via the system share sheet.
+- **Quick capture on the go.** Speak instead of typing — a mic button in Head
+  space (and the quick-thought sheet) listens and writes it down. Long-press
+  the Haven icon (Android) for a "Note a thought" quick action that opens
+  straight into capture.
+- **Everything you've done.** A filterable record of every finished task —
+  today, this week, this month, or all time — with totals and deadlines met.
+  Reachable from the Plan screen.
+
+### A home-screen "widget"
+
+Phones don't allow true widgets for web apps, but this gets very close:
+
+- **Android:** long-press the Haven icon → **Note a thought** opens straight
+  into voice/text capture. (These quick actions come from the app itself once
+  installed.)
+- **iPhone:** open the **Shortcuts** app → new shortcut → *Open URL* →
+  `https://<your-pages-url>/?quick=capture` → name it "Note a thought" and
+  add the Shortcuts widget to the home screen (or lock screen). Tapping it
+  opens Haven ready to listen.
 
 Everything is written in warm, calm language, with soft colours, large touch
 targets, and a dark mode that follows the phone.

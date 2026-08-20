@@ -9,7 +9,8 @@ const Store = (() => {
       name: '',
       dayStart: '09:00',
       dayEnd: '17:30',
-      capacityMin: 240,      // how many minutes of "doing" feels right per day
+      capacityMin: 60,       // minutes of "doing" planned per day — life admin
+                             // outside her working hours, so it starts gentle
       onboarded: false,
       google: {              // connected Google account (Gmail + Calendar)
         clientId: '',

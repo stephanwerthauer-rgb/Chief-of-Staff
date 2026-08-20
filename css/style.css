@@ -242,6 +242,27 @@ h1 { font-size: 1.9rem; font-weight: 700; letter-spacing: -0.02em; line-height: 
 /* ---------- Inbox ---------- */
 
 .inbox-form { margin-bottom: 20px; }
+.inbox-actions { display: flex; gap: 10px; align-items: stretch; }
+
+.mic-btn {
+  flex: none;
+  width: 50px;
+  border-radius: 999px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  font-size: 1.15rem;
+  min-height: 48px;
+  transition: transform 0.15s ease;
+}
+.mic-btn:active { transform: scale(0.94); }
+.mic-btn.listening {
+  background: var(--sage);
+  animation: mic-pulse 1.6s ease-in-out infinite;
+}
+@keyframes mic-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(125, 152, 132, 0.45); }
+  50% { box-shadow: 0 0 0 12px rgba(125, 152, 132, 0); }
+}
 .inbox-form textarea {
   width: 100%;
   border: none;

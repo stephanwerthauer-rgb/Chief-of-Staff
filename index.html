@@ -61,7 +61,10 @@
       </header>
       <form id="inbox-form" class="inbox-form">
         <textarea id="inbox-input" rows="3" placeholder="Empty your head… one thing per line is fine." enterkeyhint="done"></textarea>
-        <button type="submit" class="btn btn-primary btn-block">Put it down</button>
+        <div class="inbox-actions">
+          <button type="button" class="mic-btn" id="inbox-mic" aria-label="Speak instead of typing">🎤</button>
+          <button type="submit" class="btn btn-primary" style="flex:1">Put it down</button>
+        </div>
       </form>
       <div id="inbox-list"></div>
     </section>

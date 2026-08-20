@@ -31,7 +31,7 @@ const Planner = (() => {
   const ENERGY_FACTOR = { low: 0.5, ok: 1, good: 1.15 };
 
   function dayBudget(dateStr) {
-    const cap = Store.state.settings.capacityMin || 240;
+    const cap = Store.state.settings.capacityMin || 60;
     const factor = ENERGY_FACTOR[Store.state.checkins[dateStr]] || 1;
     const budget = Math.round(cap * factor) - eventMinutesOn(dateStr);
     return Math.max(0, budget);
