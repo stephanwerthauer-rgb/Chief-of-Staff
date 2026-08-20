@@ -10,12 +10,22 @@ const Store = (() => {
       dayStart: '09:00',
       dayEnd: '17:30',
       capacityMin: 240,      // how many minutes of "doing" feels right per day
-      onboarded: false
+      onboarded: false,
+      google: {              // connected Google account (Gmail + Calendar)
+        clientId: '',
+        email: '',
+        calendar: true,
+        gmail: true,
+        lookbackDays: 3
+      },
+      anthropicKey: ''       // optional: Claude-powered email triage
     },
     tasks: [],   // {id,title,estimateMin,deadline,important,someday,pinnedDate,plannedDate,atRisk,steps[],done,doneAt,createdAt}
-    events: [],  // {id,title,date,start,durationMin}
-    inbox: [],   // {id,text,createdAt}
-    closedDays: {} // {'YYYY-MM-DD': true}
+    events: [],  // {id,title,date,start,durationMin,source?,gcalId?,allDay?}
+    inbox: [],   // {id,text,createdAt,link?,source?,suggestMin?}
+    closedDays: {}, // {'YYYY-MM-DD': true}
+    processedEmails: {}, // gmail message id -> timestamp (never re-surface a message)
+    lastSyncAt: 0
   });
 
   let state = load();
@@ -25,12 +35,19 @@ const Store = (() => {
       const raw = localStorage.getItem(KEY);
       if (!raw) return defaults();
       const parsed = JSON.parse(raw);
-      return Object.assign(defaults(), parsed, {
-        settings: Object.assign(defaults().settings, parsed.settings || {})
-      });
+      return merge(parsed);
     } catch (e) {
       return defaults();
     }
+  }
+
+  function merge(parsed) {
+    const d = defaults();
+    return Object.assign(d, parsed, {
+      settings: Object.assign(d.settings, parsed.settings || {}, {
+        google: Object.assign(d.settings.google, parsed.settings?.google || {})
+      })
+    });
   }
 
   function save() {
@@ -128,9 +145,7 @@ const Store = (() => {
     if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.tasks)) {
       throw new Error('That file doesn’t look like a Haven backup.');
     }
-    state = Object.assign(defaults(), parsed, {
-      settings: Object.assign(defaults().settings, parsed.settings || {})
-    });
+    state = merge(parsed);
     save();
   }
 

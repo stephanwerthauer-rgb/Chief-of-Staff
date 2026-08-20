@@ -52,10 +52,63 @@ her phone (stored in the browser's local storage; Settings has backup/restore).
 - **Head space** → dump everything; then "Sort these together — one at a time".
 - **Yours** → her name, her daily pace, and backups.
 
-Emails and messages: forward/copy the important bit and paste it into Head
-space — that's the capture point. (True Gmail/Calendar sync needs a server and
-OAuth credentials; the storage and planner here are structured so that could be
-added later as a sync layer feeding the same inbox and events.)
+Messages from other apps (WhatsApp, texts): copy the important bit and paste it
+into Head space — that's the capture point. Email and calendar can sync
+automatically — see below.
+
+## Connecting Gmail and Google Calendar
+
+Haven can link her Google account **directly from the phone — no server
+anywhere**. Calendar appointments flow into the plan (and shrink the day's task
+capacity); Gmail is watched through a strict three-layer gate so that **only
+emails that genuinely need something from her** ever appear in Head space:
+
+1. **Gmail-side query** — spam, promotions, social and forum mail never even
+   get fetched.
+2. **Machine-mail filter** — no-reply senders and anything with an unsubscribe
+   header (newsletters, bulk mail) are dropped on the phone.
+3. **"Does this need *her*?"** — the remainder is classified. With a Claude API
+   key set (optional, see below), Claude reads each sender/subject/preview and
+   lets through only what requires her action, rephrased as a small kind task
+   with a time estimate ("Reply to Sarah about the weekend · 10 min"). Without
+   a key, a conservative built-in filter is used. When in doubt, Haven stays
+   quiet — a missed newsletter is fine; a noisy app is not.
+
+Everything already surfaced is remembered, so nothing appears twice, and each
+item links back to the original email in Gmail.
+
+### One-time Google setup (~10 minutes, free)
+
+Google requires an app "client ID" before any app may read mail — this is what
+keeps it secure. You (not her) can do this once:
+
+1. Go to [console.cloud.google.com](https://console.cloud.google.com) → create
+   a project (call it "Haven").
+2. **APIs & Services → Library** → enable **Gmail API** and **Google Calendar
+   API**.
+3. **APIs & Services → OAuth consent screen** → External → fill in the app
+   name ("Haven") and your email → add her Gmail address under **Test users**.
+   (As a test-user app it never needs Google review.)
+4. **Scopes**: add `gmail.readonly`, `calendar.readonly`, `userinfo.email`.
+5. **APIs & Services → Credentials → Create credentials → OAuth client ID** →
+   type **Web application** → under **Authorized JavaScript origins** add your
+   GitHub Pages origin (e.g. `https://<user>.github.io`).
+6. Copy the client ID (ends in `.apps.googleusercontent.com`) and paste it
+   into Haven → **Yours → Connected accounts**, then tap **Connect Google**
+   on her phone and sign in as her.
+
+Access is read-only (Haven can never send, delete or modify anything), the
+token lives only in the phone's browser, and *Disconnect* revokes it.
+
+### Optional: Claude-powered email filtering
+
+In **Yours → Smart email filtering**, paste an Anthropic API key (create one at
+[console.anthropic.com](https://console.anthropic.com)). The key is stored only
+on the phone and calls the Claude API directly from the browser. Each sync
+classifies at most 25 message previews in a single small request, so the cost
+is pennies per month. Requests are sent with server-side refusal fallbacks
+enabled, and if a request fails for any reason Haven quietly falls back to the
+built-in filter — mail checking never breaks.
 
 ## Tech
 
@@ -66,6 +119,7 @@ index.html            app shell
 css/style.css         calm design system (light + dark)
 js/store.js           localStorage data layer
 js/planner.js         the scheduling engine (capacity + deadlines → day plan)
+js/connect.js         Google sign-in, Gmail/Calendar sync, email triage gate
 js/app.js             UI and flows
 sw.js                 offline support
 manifest.webmanifest  installability

@@ -144,6 +144,8 @@
     const parts = [];
     if (tasks.length === 0 && doneToday.length === 0 && events.length === 0) {
       $('#day-summary').textContent = 'A clear day. Add something when you’re ready — or just enjoy the space.';
+    } else if (tasks.length === 0 && doneToday.length === 0) {
+      $('#day-summary').textContent = 'Nothing on the list — just your calendar. The space in between is yours.';
     } else if (tasks.length === 0) {
       $('#day-summary').textContent = 'Everything on today’s list is done. Genuinely — you’re finished.';
     } else {
@@ -255,10 +257,12 @@
   function eventRow(e) {
     return `
       <div class="event-row" data-id="${e.id}">
-        <span class="event-time">${fmtTime(e.start)}</span>
+        <span class="event-time">${e.allDay ? 'All day' : fmtTime(e.start)}</span>
         <span class="event-title">${esc(e.title)}</span>
-        <span class="chip time">${fmtMin(e.durationMin)}</span>
-        <button class="event-del" data-act="del-event" data-id="${e.id}" aria-label="Remove">×</button>
+        ${e.allDay ? '' : `<span class="chip time">${fmtMin(e.durationMin)}</span>`}
+        ${e.source === 'google'
+          ? `<span class="chip" title="From Google Calendar">🗓</span>`
+          : `<button class="event-del" data-act="del-event" data-id="${e.id}" aria-label="Remove">×</button>`}
       </div>`;
   }
 
@@ -318,17 +322,20 @@
   function renderInbox() {
     const items = Store.state.inbox;
     const listEl = $('#inbox-list');
+    const syncBtn = Connect.isConnected()
+      ? `<button class="btn btn-soft btn-block" data-act="sync-now" style="margin-bottom:16px">Check mail &amp; calendar 🔄</button>`
+      : '';
     if (!items.length) {
-      listEl.innerHTML = `<p class="empty-note">Nothing waiting here. Your head is clear. 🌤️</p>`;
+      listEl.innerHTML = syncBtn + `<p class="empty-note">Nothing waiting here. Your head is clear. 🌤️</p>`;
       return;
     }
-    listEl.innerHTML = `
+    listEl.innerHTML = syncBtn + `
       <button class="btn btn-primary btn-block" data-act="triage" style="margin-bottom:16px">
         Sort these together — one at a time (${items.length})
       </button>
       ${items.map(i => `
         <div class="inbox-item">
-          <p>${esc(i.text)}</p>
+          <p>${esc(i.text)}${i.link ? ` <a href="${esc(i.link)}" target="_blank" rel="noopener" style="color:var(--sage-deep);font-weight:600;white-space:nowrap">open&nbsp;↗</a>` : ''}</p>
           <button class="event-del" data-act="del-inbox" data-id="${i.id}" aria-label="Remove">×</button>
         </div>`).join('')}`;
   }
@@ -352,7 +359,7 @@
     const item = items[0];
     openSheet(`
       <p class="triage-count">${items.length} to sort — one at a time, no rush</p>
-      <div class="triage-card">${esc(item.text)}</div>
+      <div class="triage-card">${esc(item.text)}${item.link ? `<br><a href="${esc(item.link)}" target="_blank" rel="noopener" style="color:var(--sage-deep);font-size:0.9rem">open the email ↗</a>` : ''}</div>
       <div class="triage-grid">
         <button class="triage-btn" data-act="tri-today" data-id="${item.id}"><span class="t-icon">☀️</span>Today<small>if it truly fits</small></button>
         <button class="triage-btn" data-act="tri-plan" data-id="${item.id}"><span class="t-icon">🗓️</span>Give it a day<small>we’ll find room</small></button>
@@ -367,8 +374,12 @@
     const item = Store.state.inbox.find(i => i.id === itemId);
     if (!item) { startTriage(); return; }
     // ask for the details that make the plan work: estimate (+ deadline if scheduling)
+    const suggested = item.suggestMin
+      ? ESTIMATES.reduce((best, m) => Math.abs(m - item.suggestMin) < Math.abs(best - item.suggestMin) ? m : best, ESTIMATES[0])
+      : 30;
     openTaskSheet({
       title: item.text.length > 120 ? item.text.slice(0, 117) + '…' : item.text,
+      estimateMin: suggested,
       someday: !!opts.someday,
       pinnedDate: opts.today ? Store.todayStr() : null
     }, () => {
@@ -728,6 +739,7 @@
         startTriage();
         break;
       }
+      case 'sync-now': runSync(true); break;
       case 'add-task': openTaskSheet(); break;
       case 'add-event': openEventSheet(); break;
       case 'add-thought': openThoughtSheet(); break;
@@ -782,6 +794,42 @@
         <p class="screen-sub" style="margin-top:-6px">The plan will never quietly pile on more than this. Protecting your energy is the whole point.</p>
       </div>
       <div class="settings-group">
+        <h3>Connected accounts</h3>
+        ${Connect.isConnected() ? `
+          <div class="toggle-row"><span>🟢 ${esc(s.google.email)}</span>
+            <button class="btn btn-ghost btn-sm" id="set-disconnect">Disconnect</button></div>
+          <div class="toggle-row" id="set-cal-row"><span>Bring in my calendar</span>
+            <div class="switch ${s.google.calendar ? 'on' : ''}" id="set-cal"></div></div>
+          <div class="toggle-row" id="set-gmail-row"><span>Watch my email for things that need me</span>
+            <div class="switch ${s.google.gmail ? 'on' : ''}" id="set-gmail"></div></div>
+          <div class="field" style="margin-top:12px">
+            <label for="set-lookback">How far back to look for email</label>
+            <select id="set-lookback">
+              ${[[1, 'Just today'], [3, 'The last 3 days'], [7, 'The last week']]
+                .map(([v, l]) => `<option value="${v}" ${v === s.google.lookbackDays ? 'selected' : ''}>${l}</option>`).join('')}
+            </select>
+          </div>
+          <button class="btn btn-soft btn-block" data-act="sync-now">Check now</button>
+          <p class="screen-sub" style="margin-top:8px">${Store.state.lastSyncAt ? `Last checked ${new Date(Store.state.lastSyncAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}.` : 'Not checked yet.'}
+          Only emails that truly need you make it in — spam, newsletters and noise never do.</p>
+        ` : `
+          <p class="screen-sub" style="margin-bottom:12px">Haven can watch your Gmail and Google Calendar — quietly, from this phone only. Appointments shape the plan; only emails that genuinely need <em>you</em> appear in Head space. Everything else stays out of sight.</p>
+          <div class="field">
+            <label for="set-gclient">Google client ID <span style="font-weight:400">(one-time setup — guide in the README)</span></label>
+            <input type="text" id="set-gclient" value="${esc(s.google.clientId)}" placeholder="…apps.googleusercontent.com" autocomplete="off">
+          </div>
+          <button class="btn btn-primary btn-block" id="set-connect">Connect Google</button>
+        `}
+      </div>
+      <div class="settings-group">
+        <h3>Smart email filtering</h3>
+        <div class="field">
+          <label for="set-claude-key">Claude API key <span style="font-weight:400">(optional)</span></label>
+          <input type="password" id="set-claude-key" value="${esc(s.anthropicKey)}" placeholder="sk-ant-…" autocomplete="off">
+        </div>
+        <p class="screen-sub" style="margin-top:-6px">With a key, Claude reads each email’s sender, subject and preview and lets through only what genuinely needs you — phrased as a small, kind task with a time guess. Without one, a simpler built-in filter is used. The key lives only on this phone.</p>
+      </div>
+      <div class="settings-group">
         <h3>Keeping it safe</h3>
         <button class="btn btn-soft btn-block" id="set-export" style="margin-bottom:10px">Save a backup</button>
         <button class="btn btn-soft btn-block" id="set-import">Restore from a backup</button>
@@ -795,6 +843,38 @@
     `;
 
     $('#set-name').addEventListener('change', e => { s.name = e.target.value.trim(); Store.save(); render(); });
+    $('#set-claude-key').addEventListener('change', e => {
+      s.anthropicKey = e.target.value.trim(); Store.save();
+      if (s.anthropicKey) toast('Smart filtering is on. Claude will guard the gate.');
+    });
+    const connectBtn = $('#set-connect');
+    if (connectBtn) {
+      connectBtn.addEventListener('click', async () => {
+        s.google.clientId = $('#set-gclient').value.trim();
+        Store.save();
+        if (!s.google.clientId) { toast('Add the Google client ID first — the README shows how.'); return; }
+        connectBtn.textContent = 'Connecting…';
+        try {
+          const email = await Connect.connect();
+          toast(`Connected as ${email}. 🌿`);
+          renderSettings();
+          runSync(true);
+        } catch (err) {
+          connectBtn.textContent = 'Connect Google';
+          toast(err.message || 'That didn’t work — no harm done. Try again when ready.');
+        }
+      });
+    }
+    const discBtn = $('#set-disconnect');
+    if (discBtn) discBtn.addEventListener('click', () => {
+      Connect.disconnect(); Planner.replan(); render();
+      toast('Disconnected. Everything synced so far stays put.');
+    });
+    const calRow = $('#set-cal-row'), gmailRow = $('#set-gmail-row');
+    if (calRow) calRow.addEventListener('click', () => { $('#set-cal').classList.toggle('on'); s.google.calendar = $('#set-cal').classList.contains('on'); Store.save(); });
+    if (gmailRow) gmailRow.addEventListener('click', () => { $('#set-gmail').classList.toggle('on'); s.google.gmail = $('#set-gmail').classList.contains('on'); Store.save(); });
+    const lookback = $('#set-lookback');
+    if (lookback) lookback.addEventListener('change', e => { s.google.lookbackDays = Number(e.target.value); Store.save(); });
     $('#set-capacity').addEventListener('change', e => { s.capacityMin = Number(e.target.value); Store.save(); Planner.replan(); toast('Pace adjusted. The plan will follow your lead.'); });
     $('#set-export').addEventListener('click', () => {
       const blob = new Blob([Store.exportJSON()], { type: 'application/json' });
@@ -849,14 +929,41 @@
     });
   }
 
+  /* ================= sync with connected accounts ================= */
+
+  async function runSync(interactive = false) {
+    if (!Connect.isConnected()) return;
+    if (interactive) toast('Checking mail and calendar…', 8000);
+    try {
+      const out = await Connect.syncAll(interactive);
+      if (!out) return;
+      Planner.replan();
+      render();
+      if (out.emails > 0) {
+        toast(out.emails === 1
+          ? 'One email needs something from you — it’s waiting in Head space.'
+          : `${out.emails} emails need something from you — they’re waiting in Head space.`, 4000);
+      } else if (interactive) {
+        toast(out.events > 0 ? 'Calendar updated. No email needs you. 🕊️' : 'All quiet. Nothing needs you right now. 🕊️');
+      }
+    } catch (err) {
+      // silent syncs fail silently — never nag; interactive ones explain gently
+      if (interactive) toast(err.message || 'Couldn’t check just now. It’ll try again later.');
+    }
+  }
+
   /* ================= boot ================= */
 
   Planner.replan();
   render();
   maybeOnboard();
+  if (Connect.shouldAutoSync()) runSync(false);
 
   // re-render when the app returns to foreground (date may have rolled over)
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) render();
+    if (!document.hidden) {
+      render();
+      if (Connect.shouldAutoSync()) runSync(false);
+    }
   });
 })();

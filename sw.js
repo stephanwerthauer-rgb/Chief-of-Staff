@@ -1,11 +1,12 @@
 /* Haven service worker — makes the app work offline once installed. */
-const CACHE = 'haven-v1';
+const CACHE = 'haven-v2';
 const ASSETS = [
   '.',
   'index.html',
   'css/style.css',
   'js/store.js',
   'js/planner.js',
+  'js/connect.js',
   'js/app.js',
   'manifest.webmanifest',
   'icons/icon.svg',
@@ -30,6 +31,8 @@ self.addEventListener('activate', e => {
 // Network-first for navigations (so updates arrive), cache-first for assets.
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
+  // never intercept cross-origin calls (Google APIs, Claude API, sign-in)
+  if (new URL(e.request.url).origin !== self.location.origin) return;
   if (e.request.mode === 'navigate') {
     e.respondWith(
       fetch(e.request)

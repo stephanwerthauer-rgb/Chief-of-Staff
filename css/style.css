@@ -336,7 +336,7 @@ h1 { font-size: 1.9rem; font-weight: 700; letter-spacing: -0.02em; line-height: 
 
 .field { margin-bottom: 18px; }
 .field label { display: block; font-size: 0.85rem; font-weight: 700; color: var(--ink-soft); margin-bottom: 8px; }
-.field input[type="text"], .field input[type="date"], .field input[type="time"], .field input[type="number"], .field select, .field textarea {
+.field input[type="text"], .field input[type="password"], .field input[type="date"], .field input[type="time"], .field input[type="number"], .field select, .field textarea {
   width: 100%;
   border: none;
   background: var(--surface);
