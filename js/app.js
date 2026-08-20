@@ -1,0 +1,862 @@
+/* Haven — UI. Gentle by design: one thing at a time, soft words, no red alerts. */
+
+(() => {
+  const $ = (sel, root = document) => root.querySelector(sel);
+  const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
+
+  const overlay = $('#overlay');
+  const sheet = $('#sheet');
+  const focusEl = $('#focus');
+  const toastEl = $('#toast');
+
+  let currentScreen = 'today';
+  let focusTimer = null;
+
+  /* ================= helpers ================= */
+
+  function esc(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  function fmtMin(min) {
+    if (!min || min <= 0) return '';
+    if (min < 60) return `${min} min`;
+    const h = Math.floor(min / 60), m = min % 60;
+    return m ? `${h}h ${m}m` : `${h}h`;
+  }
+
+  function fmtDayLabel(dateStr) {
+    const today = Store.todayStr();
+    if (dateStr === today) return 'Today';
+    if (dateStr === Store.todayStr(1)) return 'Tomorrow';
+    const d = Store.fromDateStr(dateStr);
+    return d.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'short' });
+  }
+
+  function fmtDeadline(dateStr) {
+    const today = Store.todayStr();
+    if (dateStr < today) return 'was due ' + fmtDayLabel(dateStr).toLowerCase();
+    if (dateStr === today) return 'due today';
+    if (dateStr === Store.todayStr(1)) return 'due tomorrow';
+    const d = Store.fromDateStr(dateStr);
+    return 'due ' + d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
+  }
+
+  function deadlineUrgent(dateStr) {
+    return dateStr <= Store.todayStr(1);
+  }
+
+  function fmtTime(t) {
+    // "14:30" -> localized-ish simple display
+    const [h, m] = t.split(':').map(Number);
+    const am = h < 12;
+    const hh = h % 12 === 0 ? 12 : h % 12;
+    return `${hh}:${String(m).padStart(2, '0')}${am ? 'am' : 'pm'}`;
+  }
+
+  let toastTimeout = null;
+  function toast(msg, ms = 2600) {
+    toastEl.textContent = msg;
+    toastEl.hidden = false;
+    clearTimeout(toastTimeout);
+    toastTimeout = setTimeout(() => { toastEl.hidden = true; }, ms);
+  }
+
+  const encouragements = [
+    'Lovely. One less thing. 🌿',
+    'Done and dusted. Well done. ✨',
+    'That’s real progress.',
+    'Nice — it’s off your mind now.',
+    'One gentle step at a time. 🍃',
+    'You did the thing. 💛'
+  ];
+  function cheer() { toast(encouragements[Math.floor(Math.random() * encouragements.length)]); }
+
+  /* ================= navigation ================= */
+
+  function goto(screen) {
+    currentScreen = screen;
+    $$('.screen').forEach(s => { s.hidden = s.dataset.screen !== screen; });
+    $$('.tab').forEach(t => t.classList.toggle('active', t.dataset.goto === screen));
+    window.scrollTo({ top: 0 });
+    render();
+  }
+
+  $('#tabbar').addEventListener('click', e => {
+    const tab = e.target.closest('.tab');
+    if (tab) goto(tab.dataset.goto);
+  });
+
+  /* ================= sheets ================= */
+
+  function openSheet(html) {
+    sheet.innerHTML = html;
+    overlay.hidden = false;
+    document.body.style.overflow = 'hidden';
+  }
+  function closeSheet() {
+    overlay.hidden = true;
+    sheet.innerHTML = '';
+    document.body.style.overflow = '';
+  }
+  $('#overlay-backdrop').addEventListener('click', closeSheet);
+
+  /* ================= render root ================= */
+
+  function render() {
+    Planner.replan();
+    renderBadge();
+    if (currentScreen === 'today') renderToday();
+    if (currentScreen === 'plan') renderPlan();
+    if (currentScreen === 'inbox') renderInbox();
+    if (currentScreen === 'settings') renderSettings();
+  }
+
+  function renderBadge() {
+    const n = Store.state.inbox.length;
+    const badge = $('#inbox-badge');
+    badge.hidden = n === 0;
+    badge.textContent = n > 9 ? '9+' : n;
+  }
+
+  /* ================= TODAY ================= */
+
+  function greetingText() {
+    const h = new Date().getHours();
+    const name = Store.state.settings.name;
+    const nm = name ? `, ${name}` : '';
+    if (h < 12) return `Good morning${nm}`;
+    if (h < 17) return `Good afternoon${nm}`;
+    return `Good evening${nm}`;
+  }
+
+  function renderToday() {
+    const today = Store.todayStr();
+    const tasks = Planner.tasksOn(today);
+    const doneToday = Planner.doneOn(today);
+    const events = Store.eventsOn(today);
+    const totalMin = Planner.plannedMinutesOn(today);
+
+    $('#today-date').textContent = new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
+    $('#greeting').textContent = greetingText();
+
+    // summary line
+    const parts = [];
+    if (tasks.length === 0 && doneToday.length === 0 && events.length === 0) {
+      $('#day-summary').textContent = 'A clear day. Add something when you’re ready — or just enjoy the space.';
+    } else if (tasks.length === 0) {
+      $('#day-summary').textContent = 'Everything on today’s list is done. Genuinely — you’re finished.';
+    } else {
+      parts.push(`${tasks.length} thing${tasks.length === 1 ? '' : 's'} today`);
+      if (totalMin) parts.push(`about ${fmtMin(totalMin)} of doing`);
+      const feel = totalMin <= 90 ? 'Very doable.' : totalMin <= 180 ? 'Steady does it.' : 'We’ll take it one step at a time.';
+      $('#day-summary').textContent = parts.join(' · ') + '. ' + feel;
+    }
+
+    // capacity bar
+    const cap = Planner.dayBudget(today) + doneToday.reduce((a, t) => a + (t.estimateMin || 30), 0);
+    const used = doneToday.reduce((a, t) => a + (t.estimateMin || 30), 0);
+    const capWrap = $('#capacity-wrap');
+    if (tasks.length || doneToday.length) {
+      capWrap.hidden = false;
+      const denom = Math.max(cap, used + totalMin, 1);
+      const pct = Math.min(100, Math.round((used / denom) * 100));
+      $('#capacity-fill').style.width = pct + '%';
+      $('#capacity-fill').classList.toggle('full', pct >= 100);
+      $('#capacity-label').textContent = used
+        ? `${fmtMin(used)} already done today. 🎉`
+        : `Today holds about ${fmtMin(denom)} of doing — that’s the whole plan.`;
+    } else {
+      capWrap.hidden = true;
+    }
+
+    // NOW card
+    const nowSlot = $('#now-slot');
+    if (tasks.length > 0) {
+      const t = tasks[0];
+      const step = (t.steps || []).find(s => !s.done);
+      nowSlot.innerHTML = `
+        <div class="now-card">
+          <div class="card-label">Just this, for now</div>
+          <div class="now-title">${esc(t.title)}</div>
+          ${step ? `<p class="now-step-hint">Next tiny step: <strong>${esc(step.title)}</strong></p>` : ''}
+          <div class="now-meta">
+            <span class="chip time">⏱ ${fmtMin(Planner.remainingMinutes(t)) || '—'}</span>
+            ${t.deadline ? `<span class="chip deadline ${deadlineUrgent(t.deadline) ? 'urgent' : ''}">${fmtDeadline(t.deadline)}</span>` : ''}
+            ${t.important ? `<span class="chip important">matters to you</span>` : ''}
+          </div>
+          <div class="now-actions">
+            <button class="btn btn-primary" data-act="focus" data-id="${t.id}">Begin gently</button>
+            <button class="btn btn-soft" data-act="done" data-id="${t.id}">Done ✓</button>
+            <button class="btn btn-ghost btn-sm" data-act="detail" data-id="${t.id}">More…</button>
+          </div>
+        </div>`;
+    } else if (doneToday.length > 0) {
+      nowSlot.innerHTML = `
+        <div class="done-card">
+          <div class="big">🌸</div>
+          <h2>That’s everything.</h2>
+          <p>You finished ${doneToday.length} thing${doneToday.length === 1 ? '' : 's'} today. The rest of the day is yours — you’ve earned the pause.</p>
+        </div>`;
+    } else {
+      nowSlot.innerHTML = '';
+    }
+
+    // rest of today's tasks
+    const rest = tasks.slice(1);
+    const listEl = $('#today-list');
+    let listHtml = '';
+    if (rest.length) {
+      listHtml += `<p class="section-title">Then, when you’re ready</p>`;
+      listHtml += rest.map(taskRow).join('');
+    }
+    if (doneToday.length) {
+      listHtml += `<p class="section-title">Done today 🌿</p>`;
+      listHtml += doneToday.map(taskRow).join('');
+    }
+    listEl.innerHTML = listHtml;
+
+    // events
+    const evEl = $('#today-events');
+    evEl.innerHTML = events.length
+      ? `<p class="section-title">On the calendar</p>` + events.map(eventRow).join('')
+      : '';
+
+    // close-day
+    const actions = $('#day-actions');
+    const evening = new Date().getHours() >= 17;
+    if ((evening || tasks.length === 0) && (tasks.length > 0 || doneToday.length > 0)) {
+      actions.innerHTML = `<button class="btn btn-soft btn-block" data-act="close-day">Close the day 🌙</button>`;
+    } else {
+      actions.innerHTML = '';
+    }
+  }
+
+  function taskRow(t) {
+    const stepsTotal = (t.steps || []).length;
+    const stepsDone = (t.steps || []).filter(s => s.done).length;
+    return `
+      <div class="task-row ${t.done ? 'done' : ''}" data-id="${t.id}">
+        <button class="task-check ${t.done ? 'checked' : ''}" data-act="toggle" data-id="${t.id}" aria-label="Mark done">${t.done ? '✓' : ''}</button>
+        <div class="task-body" data-act="detail" data-id="${t.id}">
+          <div class="task-title">${esc(t.title)}</div>
+          <div class="task-meta">
+            ${!t.done ? `<span class="chip time">⏱ ${fmtMin(Planner.remainingMinutes(t)) || '—'}</span>` : ''}
+            ${t.deadline && !t.done ? `<span class="chip deadline ${deadlineUrgent(t.deadline) ? 'urgent' : ''}">${fmtDeadline(t.deadline)}</span>` : ''}
+            ${t.important && !t.done ? `<span class="chip important">matters</span>` : ''}
+            ${t.atRisk && !t.done ? `<span class="chip risk">needs a rethink</span>` : ''}
+          </div>
+          ${stepsTotal ? `<div class="task-steps-note">${stepsDone}/${stepsTotal} small steps done</div>` : ''}
+        </div>
+        <button class="task-more" data-act="detail" data-id="${t.id}" aria-label="Details">›</button>
+      </div>`;
+  }
+
+  function eventRow(e) {
+    return `
+      <div class="event-row" data-id="${e.id}">
+        <span class="event-time">${fmtTime(e.start)}</span>
+        <span class="event-title">${esc(e.title)}</span>
+        <span class="chip time">${fmtMin(e.durationMin)}</span>
+        <button class="event-del" data-act="del-event" data-id="${e.id}" aria-label="Remove">×</button>
+      </div>`;
+  }
+
+  /* ================= PLAN ================= */
+
+  function renderPlan() {
+    // deadline reassurance / soft warnings
+    const risk = Planner.atRiskTasks();
+    const notes = $('#deadline-notes');
+    const withDeadline = Store.state.tasks.filter(t => !t.done && !t.someday && t.deadline);
+    if (risk.length) {
+      notes.innerHTML = `
+        <div class="note-card">
+          <strong>A gentle heads-up.</strong> ${risk.length === 1 ? 'One thing is' : `${risk.length} things are`} tight against ${risk.length === 1 ? 'its' : 'their'} deadline.
+          It might help to break ${risk.length === 1 ? 'it' : 'them'} into smaller steps, shorten the estimate, or let something else wait. Tap ${risk.length === 1 ? 'it' : 'one'} below to adjust.
+        </div>`;
+    } else if (withDeadline.length) {
+      notes.innerHTML = `
+        <div class="note-card calm">
+          <strong>All deadlines are covered.</strong> Everything with a due date has a day reserved before it’s due. You don’t need to hold any of this in your head.
+        </div>`;
+    } else {
+      notes.innerHTML = '';
+    }
+
+    // 14-day view
+    const weekEl = $('#week-list');
+    let html = '';
+    for (let i = 0; i < 14; i++) {
+      const dateStr = Store.todayStr(i);
+      const tasks = Planner.tasksOn(dateStr);
+      const events = Store.eventsOn(dateStr);
+      const load = Planner.plannedMinutesOn(dateStr);
+      if (i > 6 && tasks.length === 0 && events.length === 0) continue; // keep far-future quiet unless used
+      html += `
+        <div class="day-block">
+          <div class="day-block-head">
+            <h2>${fmtDayLabel(dateStr)}</h2>
+            ${load ? `<span class="load">about ${fmtMin(load)} of doing</span>` : ''}
+          </div>
+          ${events.map(eventRow).join('')}
+          ${tasks.map(taskRow).join('')}
+          ${(!tasks.length && !events.length) ? `<p class="day-empty">Nothing planned. Space is allowed. 🕊️</p>` : ''}
+        </div>`;
+    }
+    weekEl.innerHTML = html;
+
+    // someday
+    const someday = Store.state.tasks.filter(t => !t.done && t.someday);
+    $('#someday-list').innerHTML = someday.length
+      ? `<p class="section-title">Someday, no pressure</p>` + someday.map(taskRow).join('')
+      : '';
+  }
+
+  /* ================= INBOX ================= */
+
+  function renderInbox() {
+    const items = Store.state.inbox;
+    const listEl = $('#inbox-list');
+    if (!items.length) {
+      listEl.innerHTML = `<p class="empty-note">Nothing waiting here. Your head is clear. 🌤️</p>`;
+      return;
+    }
+    listEl.innerHTML = `
+      <button class="btn btn-primary btn-block" data-act="triage" style="margin-bottom:16px">
+        Sort these together — one at a time (${items.length})
+      </button>
+      ${items.map(i => `
+        <div class="inbox-item">
+          <p>${esc(i.text)}</p>
+          <button class="event-del" data-act="del-inbox" data-id="${i.id}" aria-label="Remove">×</button>
+        </div>`).join('')}`;
+  }
+
+  $('#inbox-form').addEventListener('submit', e => {
+    e.preventDefault();
+    const input = $('#inbox-input');
+    const lines = input.value.split('\n').map(s => s.trim()).filter(Boolean);
+    if (!lines.length) return;
+    lines.forEach(l => Store.addInbox(l));
+    input.value = '';
+    toast(lines.length === 1 ? 'Got it. It’s safe here now.' : `Got all ${lines.length}. They’re safe here now.`);
+    render();
+  });
+
+  /* ---- triage flow: one item at a time ---- */
+
+  function startTriage() {
+    const items = Store.state.inbox;
+    if (!items.length) { closeSheet(); render(); toast('All sorted. Lovely. 🌿'); return; }
+    const item = items[0];
+    openSheet(`
+      <p class="triage-count">${items.length} to sort — one at a time, no rush</p>
+      <div class="triage-card">${esc(item.text)}</div>
+      <div class="triage-grid">
+        <button class="triage-btn" data-act="tri-today" data-id="${item.id}"><span class="t-icon">☀️</span>Today<small>if it truly fits</small></button>
+        <button class="triage-btn" data-act="tri-plan" data-id="${item.id}"><span class="t-icon">🗓️</span>Give it a day<small>we’ll find room</small></button>
+        <button class="triage-btn" data-act="tri-someday" data-id="${item.id}"><span class="t-icon">🌱</span>Someday<small>parked, not lost</small></button>
+        <button class="triage-btn" data-act="tri-drop" data-id="${item.id}"><span class="t-icon">🍂</span>Let it go<small>permission granted</small></button>
+      </div>
+      <div class="sheet-actions"><button class="btn btn-ghost" data-act="sheet-close">Pause sorting</button></div>
+    `);
+  }
+
+  function triageToTask(itemId, opts) {
+    const item = Store.state.inbox.find(i => i.id === itemId);
+    if (!item) { startTriage(); return; }
+    // ask for the details that make the plan work: estimate (+ deadline if scheduling)
+    openTaskSheet({
+      title: item.text.length > 120 ? item.text.slice(0, 117) + '…' : item.text,
+      someday: !!opts.someday,
+      pinnedDate: opts.today ? Store.todayStr() : null
+    }, () => {
+      Store.removeInbox(itemId);
+      startTriage();
+    }, opts.someday ? 'Parked in “someday” — safe and out of your head.' : null);
+  }
+
+  /* ================= ADD sheets ================= */
+
+  function openAddChooser() {
+    openSheet(`
+      <h2>Add something</h2>
+      <p class="sheet-sub">Whatever it is, it only needs a home — not your memory.</p>
+      <div class="triage-grid">
+        <button class="triage-btn" data-act="add-task"><span class="t-icon">✅</span>A task<small>something to do</small></button>
+        <button class="triage-btn" data-act="add-event"><span class="t-icon">📅</span>Calendar<small>appointment or plan</small></button>
+        <button class="triage-btn" data-act="add-thought" style="grid-column: 1 / -1"><span class="t-icon">🌤️</span>Just get it out of my head<small>sort it later — that’s fine</small></button>
+      </div>
+    `);
+  }
+
+  const ESTIMATES = [10, 20, 30, 45, 60, 90, 120];
+
+  function openTaskSheet(prefill = {}, onSaved = null, savedMsg = null) {
+    const p = Object.assign({ title: '', estimateMin: 30, deadline: '', important: false, someday: false, pinnedDate: null }, prefill);
+    openSheet(`
+      <h2>${p.someday ? 'Park it for someday' : 'A new task'}</h2>
+      <p class="sheet-sub">${p.someday ? 'No dates, no pressure. It’ll be waiting when you want it.' : 'A rough time guess is enough — it helps the plan protect your day.'}</p>
+      <div class="field">
+        <label for="tsk-title">What is it?</label>
+        <input type="text" id="tsk-title" value="${esc(p.title)}" placeholder="e.g. Reply to the dentist" autocomplete="off">
+      </div>
+      <div class="field">
+        <label>Roughly how long?</label>
+        <div class="chip-row" id="tsk-est">
+          ${ESTIMATES.map(m => `<button type="button" class="chip-pick ${m === p.estimateMin ? 'selected' : ''}" data-est="${m}">${fmtMin(m)}</button>`).join('')}
+        </div>
+      </div>
+      ${p.someday ? '' : `
+      <div class="field">
+        <label for="tsk-deadline">Does it have a deadline? <span style="font-weight:400">(leave empty if not)</span></label>
+        <input type="date" id="tsk-deadline" value="${esc(p.deadline || '')}" min="${Store.todayStr()}">
+      </div>
+      <div class="toggle-row" id="tsk-important-row"><span>This one really matters</span><div class="switch ${p.important ? 'on' : ''}" id="tsk-important"></div></div>
+      <div class="toggle-row" id="tsk-today-row"><span>Do it today</span><div class="switch ${p.pinnedDate ? 'on' : ''}" id="tsk-today"></div></div>
+      `}
+      <div class="sheet-actions">
+        <button class="btn btn-ghost" data-act="sheet-close">Not now</button>
+        <button class="btn btn-primary" id="tsk-save">Add it</button>
+      </div>
+    `);
+
+    $('#tsk-est').addEventListener('click', e => {
+      const c = e.target.closest('.chip-pick');
+      if (!c) return;
+      $$('#tsk-est .chip-pick').forEach(x => x.classList.remove('selected'));
+      c.classList.add('selected');
+    });
+    const impEl = $('#tsk-important'), todEl = $('#tsk-today');
+    if (impEl) $('#tsk-important-row').addEventListener('click', () => impEl.classList.toggle('on'));
+    if (todEl) $('#tsk-today-row').addEventListener('click', () => todEl.classList.toggle('on'));
+
+    $('#tsk-save').addEventListener('click', () => {
+      const title = $('#tsk-title').value.trim();
+      if (!title) { $('#tsk-title').focus(); return; }
+      const est = Number($('#tsk-est .chip-pick.selected')?.dataset.est || 30);
+      const deadline = p.someday ? null : ($('#tsk-deadline').value || null);
+      const important = impEl ? impEl.classList.contains('on') : false;
+      const doToday = todEl ? todEl.classList.contains('on') : false;
+      const task = Store.addTask({
+        title, estimateMin: est, deadline, important,
+        someday: p.someday, pinnedDate: doToday ? Store.todayStr() : null
+      });
+      Planner.replan();
+      closeSheet();
+      if (onSaved) { onSaved(task); }
+      render();
+      if (savedMsg) { toast(savedMsg); return; }
+      if (task.someday) { toast('Parked for someday. Out of your head, kept safe.'); }
+      else {
+        const when = fmtDayLabel(task.plannedDate);
+        toast(task.atRisk
+          ? 'Added — the deadline looks tight, so it’s scheduled as soon as possible.'
+          : `Planned for ${when === 'Today' ? 'today' : when}. You can let it go now. 🌿`);
+      }
+      if (est >= 60 && !p.someday) {
+        setTimeout(() => offerBreakdown(task.id), 900);
+      }
+    });
+    setTimeout(() => $('#tsk-title')?.focus(), 250);
+  }
+
+  function openEventSheet() {
+    openSheet(`
+      <h2>On the calendar</h2>
+      <p class="sheet-sub">Appointments, calls, plans — the day shapes itself around them.</p>
+      <div class="field"><label for="ev-title">What is it?</label>
+        <input type="text" id="ev-title" placeholder="e.g. Doctor’s appointment" autocomplete="off"></div>
+      <div class="field"><label for="ev-date">Which day?</label>
+        <input type="date" id="ev-date" value="${Store.todayStr()}" min="${Store.todayStr()}"></div>
+      <div class="field"><label for="ev-start">What time?</label>
+        <input type="time" id="ev-start" value="10:00"></div>
+      <div class="field"><label>How long will it take, door to door?</label>
+        <div class="chip-row" id="ev-dur">
+          ${[30, 60, 90, 120, 180, 240].map(m => `<button type="button" class="chip-pick ${m === 60 ? 'selected' : ''}" data-est="${m}">${fmtMin(m)}</button>`).join('')}
+        </div></div>
+      <div class="sheet-actions">
+        <button class="btn btn-ghost" data-act="sheet-close">Not now</button>
+        <button class="btn btn-primary" id="ev-save">Add it</button>
+      </div>
+    `);
+    $('#ev-dur').addEventListener('click', e => {
+      const c = e.target.closest('.chip-pick');
+      if (!c) return;
+      $$('#ev-dur .chip-pick').forEach(x => x.classList.remove('selected'));
+      c.classList.add('selected');
+    });
+    $('#ev-save').addEventListener('click', () => {
+      const title = $('#ev-title').value.trim();
+      if (!title) { $('#ev-title').focus(); return; }
+      Store.addEvent({
+        title,
+        date: $('#ev-date').value || Store.todayStr(),
+        start: $('#ev-start').value || '10:00',
+        durationMin: Number($('#ev-dur .chip-pick.selected')?.dataset.est || 60)
+      });
+      closeSheet();
+      render();
+      toast('On the calendar. The plan will make room around it.');
+    });
+    setTimeout(() => $('#ev-title')?.focus(), 250);
+  }
+
+  function openThoughtSheet() {
+    openSheet(`
+      <h2>Out of your head</h2>
+      <p class="sheet-sub">Type anything — a worry, an email to answer, a half-formed thing. Sorting can wait.</p>
+      <div class="field"><textarea id="thought-text" rows="4" placeholder="One thing per line is fine…"></textarea></div>
+      <div class="sheet-actions">
+        <button class="btn btn-ghost" data-act="sheet-close">Not now</button>
+        <button class="btn btn-primary" id="thought-save">Put it down</button>
+      </div>
+    `);
+    $('#thought-save').addEventListener('click', () => {
+      const lines = $('#thought-text').value.split('\n').map(s => s.trim()).filter(Boolean);
+      lines.forEach(l => Store.addInbox(l));
+      closeSheet();
+      render();
+      if (lines.length) toast('Safe here now. Your head can let it go. 🌤️');
+    });
+    setTimeout(() => $('#thought-text')?.focus(), 250);
+  }
+
+  /* ================= task detail & breakdown ================= */
+
+  function openTaskDetail(id) {
+    const t = Store.getTask(id);
+    if (!t) return;
+    const steps = t.steps || [];
+    openSheet(`
+      <h2>${esc(t.title)}</h2>
+      <p class="sheet-sub">
+        ${t.done ? 'Done. 🌿' : t.someday ? 'Parked for someday — no pressure attached.'
+          : `Planned for ${fmtDayLabel(t.plannedDate).toLowerCase() === 'today' ? 'today' : fmtDayLabel(t.plannedDate)} · about ${fmtMin(Planner.remainingMinutes(t)) || '—'}${t.deadline ? ` · ${fmtDeadline(t.deadline)}` : ''}`}
+        ${t.atRisk && !t.done ? '<br><br>⚠️ The deadline looks tight. Smaller steps, a shorter estimate, or letting something else wait would ease it.' : ''}
+      </p>
+
+      <div class="field">
+        <label>Small steps ${steps.length ? `(${steps.filter(s => s.done).length}/${steps.length})` : ''}</label>
+        ${steps.length ? steps.map(s => `
+          <div class="step-row">
+            <button class="task-check ${s.done ? 'checked' : ''}" data-act="step-toggle" data-id="${t.id}" data-step="${s.id}">${s.done ? '✓' : ''}</button>
+            <p class="${s.done ? 'done' : ''}">${esc(s.title)}</p>
+            <span class="chip time">${fmtMin(s.estimateMin)}</span>
+          </div>`).join('')
+        : `<p class="empty-note" style="padding:10px">Big things feel lighter in small pieces. Make the first step really tiny — “open the email” counts.</p>`}
+        <div class="step-add">
+          <input type="text" id="step-title" placeholder="A tiny first step…" autocomplete="off">
+          <button class="btn btn-primary btn-sm" data-act="step-add" data-id="${t.id}">Add</button>
+        </div>
+        <div class="chip-row" id="step-est" style="margin-top:8px">
+          ${[5, 10, 15, 30].map(m => `<button type="button" class="chip-pick ${m === 10 ? 'selected' : ''}" data-est="${m}">${fmtMin(m)}</button>`).join('')}
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="dt-deadline">Deadline</label>
+        <input type="date" id="dt-deadline" value="${esc(t.deadline || '')}" min="${Store.todayStr()}">
+      </div>
+
+      <div class="sheet-actions" style="flex-wrap:wrap">
+        ${!t.done ? `<button class="btn btn-primary" data-act="focus" data-id="${t.id}">Begin gently</button>` : ''}
+        ${!t.done && !t.someday ? `<button class="btn btn-soft" data-act="not-today" data-id="${t.id}">Not today</button>` : ''}
+        ${t.someday ? `<button class="btn btn-soft" data-act="revive" data-id="${t.id}">Bring it back</button>` : ''}
+        <button class="btn btn-ghost" data-act="task-delete" data-id="${t.id}">Let it go</button>
+        <button class="btn btn-ghost" data-act="sheet-close">Close</button>
+      </div>
+    `);
+
+    $('#step-est').addEventListener('click', e => {
+      const c = e.target.closest('.chip-pick');
+      if (!c) return;
+      $$('#step-est .chip-pick').forEach(x => x.classList.remove('selected'));
+      c.classList.add('selected');
+    });
+    $('#dt-deadline').addEventListener('change', e => {
+      Store.updateTask(t.id, { deadline: e.target.value || null });
+      Planner.replan();
+      render();
+    });
+  }
+
+  function offerBreakdown(id) {
+    const t = Store.getTask(id);
+    if (!t) return;
+    openSheet(`
+      <h2>Want to make it smaller?</h2>
+      <p class="sheet-sub">“${esc(t.title)}” is a chunky one (${fmtMin(t.estimateMin)}). Things this size feel much lighter as a few tiny steps — and the first one can be as small as “open the laptop”.</p>
+      <div class="sheet-actions">
+        <button class="btn btn-ghost" data-act="sheet-close">It’s fine as it is</button>
+        <button class="btn btn-primary" data-act="detail" data-id="${t.id}">Break it down</button>
+      </div>
+    `);
+  }
+
+  /* ================= focus mode ================= */
+
+  function startFocus(id) {
+    const t = Store.getTask(id);
+    if (!t) return;
+    closeSheet();
+    const step = (t.steps || []).find(s => !s.done);
+    const startedAt = Date.now();
+    focusEl.hidden = false;
+    document.body.style.overflow = 'hidden';
+    focusEl.innerHTML = `
+      <div class="breath" aria-hidden="true"></div>
+      <p class="focus-kicker">Breathe in… and out. Then just this:</p>
+      <h2>${esc(step ? step.title : t.title)}</h2>
+      ${step ? `<p class="focus-step">part of “${esc(t.title)}”</p>` : ''}
+      <p class="focus-timer" id="focus-timer">just beginning</p>
+      <div class="focus-actions">
+        <button class="btn btn-primary btn-block" data-act="focus-done" data-id="${t.id}" data-step="${step ? step.id : ''}">${step ? 'This step is done ✓' : 'It’s done ✓'}</button>
+        <button class="btn btn-soft btn-block" data-act="focus-exit">Pause — come back later</button>
+      </div>
+    `;
+    focusTimer = setInterval(() => {
+      const min = Math.floor((Date.now() - startedAt) / 60000);
+      const el = $('#focus-timer');
+      if (!el) return;
+      el.textContent = min < 1 ? 'just beginning'
+        : `${min} minute${min === 1 ? '' : 's'} in — no rush at all`;
+    }, 15000);
+  }
+
+  function exitFocus() {
+    clearInterval(focusTimer);
+    focusTimer = null;
+    focusEl.hidden = true;
+    focusEl.innerHTML = '';
+    document.body.style.overflow = '';
+  }
+
+  /* ================= actions (event delegation) ================= */
+
+  function completeTask(id) {
+    const t = Store.getTask(id);
+    if (!t) return;
+    if (t.done) {
+      Store.updateTask(id, { done: false, doneAt: null });
+    } else {
+      (t.steps || []).forEach(s => s.done = true);
+      Store.updateTask(id, { done: true, doneAt: Date.now() });
+      cheer();
+    }
+    render();
+  }
+
+  function closeDay() {
+    const today = Store.todayStr();
+    const remaining = Planner.tasksOn(today);
+    const doneToday = Planner.doneOn(today);
+    remaining.forEach(t => {
+      if (t.pinnedDate === today) Store.updateTask(t.id, { pinnedDate: null });
+    });
+    Store.state.closedDays[today] = true;
+    Store.save();
+    Planner.replan();
+    openSheet(`
+      <div class="done-card" style="margin-bottom:0">
+        <div class="big">🌙</div>
+        <h2>The day is closed.</h2>
+        <p>
+          ${doneToday.length ? `You finished ${doneToday.length} thing${doneToday.length === 1 ? '' : 's'} today — that counts, and it’s enough.` : 'Some days are for resting, and that’s allowed.'}
+          ${remaining.length ? `<br><br>The ${remaining.length === 1 ? 'one thing' : `${remaining.length} things`} left ${remaining.length === 1 ? 'has' : 'have'} already been given a new home in the plan. Nothing is lost, and nothing needs you tonight.` : ''}
+        </p>
+        <div style="margin-top:18px"><button class="btn btn-primary" data-act="sheet-close">Goodnight 💛</button></div>
+      </div>
+    `);
+    render();
+  }
+
+  document.body.addEventListener('click', e => {
+    const el = e.target.closest('[data-act]');
+    if (!el) return;
+    const act = el.dataset.act;
+    const id = el.dataset.id;
+
+    switch (act) {
+      case 'sheet-close': closeSheet(); render(); break;
+      case 'toggle': case 'done': completeTask(id); break;
+      case 'detail': openTaskDetail(id); break;
+      case 'focus': startFocus(id); break;
+      case 'focus-exit': exitFocus(); render(); toast('Paused, not abandoned. It’ll be here.'); break;
+      case 'focus-done': {
+        const stepId = el.dataset.step;
+        const t = Store.getTask(id);
+        exitFocus();
+        if (t && stepId) {
+          const s = t.steps.find(s => s.id === stepId);
+          if (s) s.done = true;
+          if (t.steps.every(s => s.done)) { completeTask(id); }
+          else { Store.save(); render(); toast('One small step done. That’s how it all happens. 🍃'); }
+        } else {
+          completeTask(id);
+        }
+        break;
+      }
+      case 'not-today': {
+        Store.updateTask(id, { pinnedDate: Store.todayStr(1) });
+        Planner.replan(); closeSheet(); render();
+        toast('Moved to tomorrow. Today just got lighter.');
+        break;
+      }
+      case 'revive': {
+        Store.updateTask(id, { someday: false });
+        Planner.replan(); closeSheet(); render();
+        const t = Store.getTask(id);
+        toast(t ? `Back in the plan — ${fmtDayLabel(t.plannedDate).toLowerCase()}.` : 'Back in the plan.');
+        break;
+      }
+      case 'task-delete': {
+        Store.deleteTask(id); closeSheet(); render();
+        toast('Let go. Not everything needs doing. 🍂');
+        break;
+      }
+      case 'del-event': Store.deleteEvent(id); render(); break;
+      case 'del-inbox': Store.removeInbox(id); render(); break;
+      case 'triage': startTriage(); break;
+      case 'tri-today': triageToTask(id, { today: true }); break;
+      case 'tri-plan': triageToTask(id, {}); break;
+      case 'tri-someday': triageToTask(id, { someday: true }); break;
+      case 'tri-drop': {
+        Store.removeInbox(id);
+        toast('Let go. Permission granted. 🍂');
+        startTriage();
+        break;
+      }
+      case 'add-task': openTaskSheet(); break;
+      case 'add-event': openEventSheet(); break;
+      case 'add-thought': openThoughtSheet(); break;
+      case 'close-day': closeDay(); break;
+      case 'step-toggle': {
+        const t = Store.getTask(id);
+        const s = t?.steps.find(s => s.id === el.dataset.step);
+        if (s) { s.done = !s.done; Store.save(); }
+        if (t && t.steps.length && t.steps.every(s => s.done)) { completeTask(id); closeSheet(); }
+        else { openTaskDetail(id); render(); }
+        break;
+      }
+      case 'step-add': {
+        const input = $('#step-title');
+        const title = input?.value.trim();
+        if (!title) { input?.focus(); return; }
+        const est = Number($('#step-est .chip-pick.selected')?.dataset.est || 10);
+        const t = Store.getTask(id);
+        if (t) {
+          t.steps = t.steps || [];
+          t.steps.push({ id: Store.uid(), title, estimateMin: est, done: false });
+          Store.save();
+          Planner.replan();
+          openTaskDetail(id);
+        }
+        break;
+      }
+    }
+  });
+
+  $('#fab').addEventListener('click', openAddChooser);
+
+  /* ================= SETTINGS ================= */
+
+  function renderSettings() {
+    const s = Store.state.settings;
+    $('#settings-body').innerHTML = `
+      <div class="settings-group">
+        <h3>About you</h3>
+        <div class="field"><label for="set-name">What should I call you?</label>
+          <input type="text" id="set-name" value="${esc(s.name)}" placeholder="Your name" autocomplete="off"></div>
+      </div>
+      <div class="settings-group">
+        <h3>Your pace</h3>
+        <div class="field">
+          <label for="set-capacity">How much “doing” feels right per day?</label>
+          <select id="set-capacity">
+            ${[[120, 'A gentle 2 hours'], [180, 'An easy 3 hours'], [240, 'A steady 4 hours'], [300, 'A full 5 hours'], [360, 'A big 6 hours']]
+              .map(([v, l]) => `<option value="${v}" ${v === s.capacityMin ? 'selected' : ''}>${l}</option>`).join('')}
+          </select>
+        </div>
+        <p class="screen-sub" style="margin-top:-6px">The plan will never quietly pile on more than this. Protecting your energy is the whole point.</p>
+      </div>
+      <div class="settings-group">
+        <h3>Keeping it safe</h3>
+        <button class="btn btn-soft btn-block" id="set-export" style="margin-bottom:10px">Save a backup</button>
+        <button class="btn btn-soft btn-block" id="set-import">Restore from a backup</button>
+        <input type="file" id="set-import-file" accept="application/json" hidden>
+        <p class="screen-sub">Everything lives only on this phone. A backup file lets you move it or keep it safe.</p>
+      </div>
+      <div class="settings-group">
+        <h3>A note</h3>
+        <p class="screen-sub">Haven was made with love, to carry the weight of remembering so you don’t have to. Rest is productive too. 💛</p>
+      </div>
+    `;
+
+    $('#set-name').addEventListener('change', e => { s.name = e.target.value.trim(); Store.save(); render(); });
+    $('#set-capacity').addEventListener('change', e => { s.capacityMin = Number(e.target.value); Store.save(); Planner.replan(); toast('Pace adjusted. The plan will follow your lead.'); });
+    $('#set-export').addEventListener('click', () => {
+      const blob = new Blob([Store.exportJSON()], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `haven-backup-${Store.todayStr()}.json`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    });
+    $('#set-import').addEventListener('click', () => $('#set-import-file').click());
+    $('#set-import-file').addEventListener('change', e => {
+      const f = e.target.files[0];
+      if (!f) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        try { Store.importJSON(reader.result); Planner.replan(); render(); toast('Restored. Everything’s back.'); }
+        catch (err) { toast('Hmm, that file didn’t work — no changes made.'); }
+      };
+      reader.readAsText(f);
+    });
+  }
+
+  /* ================= first-run welcome ================= */
+
+  function maybeOnboard() {
+    if (Store.state.settings.onboarded) return;
+    openSheet(`
+      <div style="text-align:center; padding: 8px 0 4px">
+        <div style="font-size:2.6rem; margin-bottom:8px">🌿</div>
+        <h2>Welcome to Haven</h2>
+        <p class="sheet-sub" style="margin-top:8px">
+          This is your gentle chief of staff. You put things down — tasks, dates, worries —
+          and Haven decides when they’ll get done, keeps deadlines safe, and never lets a day overflow.<br><br>
+          Your only job is the one small thing in front of you.
+        </p>
+      </div>
+      <div class="field">
+        <label for="ob-name">First — what should I call you?</label>
+        <input type="text" id="ob-name" placeholder="Your name" autocomplete="off">
+      </div>
+      <div class="sheet-actions">
+        <button class="btn btn-primary btn-block" id="ob-go">Let’s begin, gently</button>
+      </div>
+    `);
+    $('#ob-go').addEventListener('click', () => {
+      Store.state.settings.name = $('#ob-name').value.trim();
+      Store.state.settings.onboarded = true;
+      Store.save();
+      closeSheet();
+      render();
+      toast('Welcome. Add one small thing whenever you’re ready.');
+    });
+  }
+
+  /* ================= boot ================= */
+
+  Planner.replan();
+  render();
+  maybeOnboard();
+
+  // re-render when the app returns to foreground (date may have rolled over)
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) render();
+  });
+})();

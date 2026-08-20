@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+  <meta name="theme-color" content="#f6f4ee" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#1d211e" media="(prefers-color-scheme: dark)">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="description" content="A gentle chief of staff for your day.">
+  <title>Haven — your gentle chief of staff</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <main id="app">
+
+    <!-- ===== TODAY ===== -->
+    <section class="screen" id="screen-today" data-screen="today">
+      <header class="day-header">
+        <p class="eyebrow" id="today-date"></p>
+        <h1 id="greeting">Hello</h1>
+        <p class="day-summary" id="day-summary"></p>
+      </header>
+
+      <div class="capacity-wrap" id="capacity-wrap" hidden>
+        <div class="capacity-bar"><div class="capacity-fill" id="capacity-fill"></div></div>
+        <p class="capacity-label" id="capacity-label"></p>
+      </div>
+
+      <div id="now-slot"></div>
+
+      <div id="today-list"></div>
+
+      <div id="today-events"></div>
+
+      <div id="day-actions"></div>
+    </section>
+
+    <!-- ===== PLAN / WEEK ===== -->
+    <section class="screen" id="screen-plan" data-screen="plan" hidden>
+      <header class="screen-header">
+        <h1>The plan</h1>
+        <p class="screen-sub">Everything has a home. Nothing is forgotten.</p>
+      </header>
+      <div id="deadline-notes"></div>
+      <div id="week-list"></div>
+      <div id="someday-list"></div>
+    </section>
+
+    <!-- ===== INBOX ===== -->
+    <section class="screen" id="screen-inbox" data-screen="inbox" hidden>
+      <header class="screen-header">
+        <h1>Head space</h1>
+        <p class="screen-sub">Put it all down here — tasks, worries, emails, anything. We’ll sort it together later.</p>
+      </header>
+      <form id="inbox-form" class="inbox-form">
+        <textarea id="inbox-input" rows="3" placeholder="Empty your head… one thing per line is fine." enterkeyhint="done"></textarea>
+        <button type="submit" class="btn btn-primary btn-block">Put it down</button>
+      </form>
+      <div id="inbox-list"></div>
+    </section>
+
+    <!-- ===== SETTINGS ===== -->
+    <section class="screen" id="screen-settings" data-screen="settings" hidden>
+      <header class="screen-header">
+        <h1>Yours</h1>
+        <p class="screen-sub">Shape this around your life, not the other way round.</p>
+      </header>
+      <div id="settings-body"></div>
+    </section>
+
+  </main>
+
+  <!-- Bottom navigation -->
+  <nav class="tabbar" id="tabbar">
+    <button class="tab active" data-goto="today"><span class="tab-icon">☀️</span><span>Today</span></button>
+    <button class="tab" data-goto="plan"><span class="tab-icon">🗺️</span><span>Plan</span></button>
+    <button class="tab" data-goto="inbox"><span class="tab-icon">🌤️</span><span>Head space</span><span class="tab-badge" id="inbox-badge" hidden></span></button>
+    <button class="tab" data-goto="settings"><span class="tab-icon">🌿</span><span>Yours</span></button>
+  </nav>
+
+  <!-- Floating add button -->
+  <button class="fab" id="fab" aria-label="Add something">＋</button>
+
+  <!-- Sheet / overlay root -->
+  <div class="overlay" id="overlay" hidden>
+    <div class="overlay-backdrop" id="overlay-backdrop"></div>
+    <div class="sheet" id="sheet" role="dialog" aria-modal="true"></div>
+  </div>
+
+  <!-- Focus mode (full screen) -->
+  <div class="focus" id="focus" hidden></div>
+
+  <!-- Gentle toast -->
+  <div class="toast" id="toast" hidden></div>
+
+  <script src="js/store.js"></script>
+  <script src="js/planner.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(()=>{}));
+    }
+  </script>
+</body>
+</html>
